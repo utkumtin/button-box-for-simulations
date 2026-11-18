@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="App.Tests/ButtonBox.App.Tests.csproj" />
+  <Project Path="App/ButtonBox.App.csproj" />
+  <Project Path="Core.Tests/ButtonBox.Core.Tests.csproj" />
+  <Project Path="Core/ButtonBox.Core.csproj" />
+  <Project Path="Simulator.Tests/ButtonBox.Simulator.Tests.csproj" />
+  <Project Path="Simulator/ButtonBox.Simulator.csproj" />
+  <Project Path="Tools/SchemaGen/SchemaGen.csproj" />
+</Solution>

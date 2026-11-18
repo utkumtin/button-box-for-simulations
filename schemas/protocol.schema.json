@@ -1,0 +1,291 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "protocol.schema.json",
+  "title": "Protocol",
+  "definitions": {
+    "clientMessage": {
+      "title": "ClientMessage",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/helloMessage"
+        },
+        {
+          "$ref": "#/definitions/gestureMessage"
+        },
+        {
+          "$ref": "#/definitions/selectMessage"
+        }
+      ]
+    },
+    "clientMessageBase": {
+      "title": "ClientMessageBase",
+      "type": "object",
+      "discriminator": {
+        "propertyName": "type",
+        "mapping": {
+          "hello": "#/definitions/helloMessage",
+          "gesture": "#/definitions/gestureMessage",
+          "select": "#/definitions/selectMessage"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "maxLength": 16
+        }
+      }
+    },
+    "helloMessage": {
+      "title": "HelloMessage",
+      "allOf": [
+        {
+          "$ref": "#/definitions/clientMessageBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "token"
+          ],
+          "properties": {
+            "type": {
+              "const": "hello"
+            },
+            "token": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$",
+              "maxLength": 43
+            }
+          }
+        }
+      ]
+    },
+    "gestureMessage": {
+      "title": "GestureMessage",
+      "allOf": [
+        {
+          "$ref": "#/definitions/clientMessageBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "widgetId",
+            "gesture"
+          ],
+          "properties": {
+            "type": {
+              "const": "gesture"
+            },
+            "widgetId": {
+              "$ref": "common.schema.json#/definitions/id"
+            },
+            "gesture": {
+              "title": "Gesture",
+              "type": "string",
+              "enum": [
+                "tap",
+                "hold",
+                "minus",
+                "plus",
+                "previous",
+                "next"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "selectMessage": {
+      "title": "SelectMessage",
+      "allOf": [
+        {
+          "$ref": "#/definitions/clientMessageBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "widgetId",
+            "position"
+          ],
+          "properties": {
+            "type": {
+              "const": "select"
+            },
+            "widgetId": {
+              "$ref": "common.schema.json#/definitions/id"
+            },
+            "position": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 7
+            }
+          }
+        }
+      ]
+    },
+    "hostMessage": {
+      "title": "HostMessage",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/welcomeMessage"
+        },
+        {
+          "$ref": "#/definitions/layoutMessage"
+        },
+        {
+          "$ref": "#/definitions/stateMessage"
+        },
+        {
+          "$ref": "#/definitions/statusMessage"
+        }
+      ]
+    },
+    "hostMessageBase": {
+      "title": "HostMessageBase",
+      "type": "object",
+      "discriminator": {
+        "propertyName": "type",
+        "mapping": {
+          "welcome": "#/definitions/welcomeMessage",
+          "layout": "#/definitions/layoutMessage",
+          "state": "#/definitions/stateMessage",
+          "status": "#/definitions/statusMessage"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "maxLength": 16
+        }
+      }
+    },
+    "welcomeMessage": {
+      "title": "WelcomeMessage",
+      "allOf": [
+        {
+          "$ref": "#/definitions/hostMessageBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "welcome"
+            }
+          }
+        }
+      ]
+    },
+    "layoutMessage": {
+      "title": "LayoutMessage",
+      "allOf": [
+        {
+          "$ref": "#/definitions/hostMessageBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "layout"
+          ],
+          "properties": {
+            "type": {
+              "const": "layout"
+            },
+            "layout": {
+              "$ref": "layout.schema.json"
+            }
+          }
+        }
+      ]
+    },
+    "stateMessage": {
+      "title": "StateMessage",
+      "allOf": [
+        {
+          "$ref": "#/definitions/hostMessageBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "widgets"
+          ],
+          "properties": {
+            "type": {
+              "const": "state"
+            },
+            "widgets": {
+              "type": "object",
+              "maxProperties": 256,
+              "additionalProperties": {
+                "$ref": "#/definitions/widgetState"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "widgetState": {
+      "title": "WidgetState",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lit": {
+          "type": "boolean"
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "led": {
+          "title": "Led",
+          "type": "string",
+          "enum": [
+            "off",
+            "green",
+            "amber"
+          ]
+        }
+      }
+    },
+    "statusMessage": {
+      "title": "StatusMessage",
+      "allOf": [
+        {
+          "$ref": "#/definitions/hostMessageBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "telemetry",
+            "gameListening"
+          ],
+          "properties": {
+            "type": {
+              "const": "status"
+            },
+            "telemetry": {
+              "type": "boolean"
+            },
+            "gameListening": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

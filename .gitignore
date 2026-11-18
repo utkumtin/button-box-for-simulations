@@ -1,0 +1,14 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Web
+node_modules/
+dist/
+src/web/packages/protocol/src/generated/
+
+# C++ / CMake
+src/plugins/scs/build/

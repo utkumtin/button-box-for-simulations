@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  # The host build copies src/web/apps/*/dist into its output, so web and host
+  # run in one job, web first.
+  web-and-host:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      # pnpm must be set up before setup-node so that `cache: pnpm` finds it.
+      # The pnpm version comes from "packageManager" in src/web/package.json.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: src/web/package.json
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+          cache-dependency-path: src/web/pnpm-lock.yaml
+
+      - name: Web install
+        working-directory: src/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Web build
+        working-directory: src/web
+        run: pnpm build
+
+      - name: Web typecheck
+        working-directory: src/web
+        run: pnpm typecheck
+
+      - name: Web lint
+        working-directory: src/web
+        run: pnpm lint
+
+      - name: Web test
+        working-directory: src/web
+        run: pnpm test
+
+      - name: Host build
+        run: dotnet build src/host/ButtonBox.slnx -c Release
+
+      - name: Host test
+        run: dotnet test src/host/ButtonBox.slnx -c Release
+
+      - name: Host format
+        run: dotnet format src/host/ButtonBox.slnx --verify-no-changes
+
+  plugin:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Locate clang-format
+        id: clang
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -property installationPath
+          if (-not $vs) { throw 'Visual Studio installation not found.' }
+          $exe = Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang-format.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw "clang-format.exe not found at $exe" }
+          & $exe --version
+          "path=$exe" >> $env:GITHUB_OUTPUT
+
+      - name: Configure
+        run: >
+          cmake -S src/plugins/scs -B src/plugins/scs/build
+          -G "Visual Studio 18 2026" -A x64
+          "-DCLANG_FORMAT_EXECUTABLE=${{ steps.clang.outputs.path }}"
+
+      - name: Build
+        run: cmake --build src/plugins/scs/build --config Release
+
+      - name: Format check
+        run: cmake --build src/plugins/scs/build --config Release --target format-check

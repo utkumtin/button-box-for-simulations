@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <SchemasDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..\..\..\schemas'))</SchemasDir>
+    <ContractsFile>$(BaseIntermediateOutputPath)$(Configuration)\$(TargetFramework)\Contracts.g.cs</ContractsFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Build-time generator only: it is built first, run below, and its assemblies never flow into Core or the App. -->
+    <ProjectReference Include="..\Tools\SchemaGen\SchemaGen.csproj" ReferenceOutputAssembly="false" OutputItemType="SchemaGenTool" Private="false" />
+    <SchemaFile Include="$(SchemasDir)*.schema.json" />
+  </ItemGroup>
+
+  <!-- Regenerates the contract types from /schemas when a schema or the tool changed. Output is never committed. -->
+  <Target Name="GenerateContracts" BeforeTargets="CoreCompile" Inputs="@(SchemaFile);@(SchemaGenTool)" Outputs="$(ContractsFile)">
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; &quot;@(SchemaGenTool)&quot; &quot;$(SchemasDir.TrimEnd('\'))&quot; &quot;$(ContractsFile)&quot; ButtonBox.Core.Contracts" />
+  </Target>
+
+  <Target Name="CompileContracts" BeforeTargets="CoreCompile" DependsOnTargets="GenerateContracts">
+    <ItemGroup>
+      <Compile Include="$(ContractsFile)" />
+      <FileWrites Include="$(ContractsFile)" />
+    </ItemGroup>
+  </Target>
+</Project>

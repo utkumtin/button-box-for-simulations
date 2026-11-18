@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "common.schema.json",
+  "title": "Common",
+  "definitions": {
+    "id": {
+      "title": "Id",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "maxLength": 64
+    },
+    "game": {
+      "title": "Game",
+      "type": "string",
+      "enum": ["ac1", "acc", "acevo", "ets2", "ats"]
+    },
+    "gridCell": {
+      "title": "GridCell",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["col", "row", "colSpan", "rowSpan"],
+      "properties": {
+        "col": { "type": "integer", "minimum": 0, "maximum": 64 },
+        "row": { "type": "integer", "minimum": 0, "maximum": 64 },
+        "colSpan": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "rowSpan": { "type": "integer", "minimum": 1, "maximum": 64 }
+      }
+    }
+  }
+}

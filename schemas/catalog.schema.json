@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "catalog.schema.json",
+  "title": "Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "game",
+    "actions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "game": {
+      "$ref": "common.schema.json#/definitions/game"
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/definitions/catalogAction"
+      }
+    }
+  },
+  "definitions": {
+    "catalogAction": {
+      "title": "CatalogAction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "output"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/definitions/id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "output": {
+          "$ref": "#/definitions/output"
+        },
+        "stateField": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "vjoyOutput": {
+      "title": "VjoyOutput",
+      "allOf": [
+        {
+          "$ref": "#/definitions/outputBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "button"
+          ],
+          "properties": {
+            "kind": {
+              "const": "vjoy"
+            },
+            "button": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32
+            }
+          }
+        }
+      ]
+    },
+    "scsOutput": {
+      "title": "ScsOutput",
+      "allOf": [
+        {
+          "$ref": "#/definitions/outputBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "input"
+          ],
+          "properties": {
+            "kind": {
+              "const": "scs"
+            },
+            "input": {
+              "type": "string",
+              "pattern": "^[a-z0-9_.]{1,64}$",
+              "maxLength": 64
+            }
+          }
+        }
+      ]
+    },
+    "output": {
+      "title": "Output",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/vjoyOutput"
+        },
+        {
+          "$ref": "#/definitions/scsOutput"
+        }
+      ]
+    },
+    "outputBase": {
+      "title": "OutputBase",
+      "type": "object",
+      "discriminator": {
+        "propertyName": "kind",
+        "mapping": {
+          "vjoy": "#/definitions/vjoyOutput",
+          "scs": "#/definitions/scsOutput"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "maxLength": 16
+        }
+      }
+    }
+  }
+}

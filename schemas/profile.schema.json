@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "profile.schema.json",
+  "title": "Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "game", "layouts"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "id": { "$ref": "common.schema.json#/definitions/id" },
+    "name": { "type": "string", "maxLength": 64 },
+    "game": { "$ref": "common.schema.json#/definitions/game" },
+    "layouts": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "$ref": "layout.schema.json" }
+    }
+  }
+}
