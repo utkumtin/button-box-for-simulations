@@ -4,6 +4,10 @@ updates:
     directory: /src/host
     schedule:
       interval: weekly
+    ignore:
+      # Microsoft.Extensions.* majors follow the .NET major; stay on the line that matches net10.0.
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
     groups:
       nuget-minor-patch:
         update-types:
@@ -14,6 +18,13 @@ updates:
     directory: /src/web
     schedule:
       interval: weekly
+    ignore:
+      # Node type definitions must match the Node major we run (24 LTS).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint supports TypeScript < 6.1; lift this when it supports 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         update-types:
