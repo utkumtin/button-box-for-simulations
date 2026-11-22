@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ClientMessage, HostMessage, Output, Widget } from './index';
+import type { ClientMessage, HostMessage, Look, Output, Widget } from './index';
 
 // Hand-written consumers of the generated types. `pnpm typecheck` fails when a schema change
 // (renamed field, added or removed message or widget type) no longer fits them.
@@ -26,6 +26,8 @@ export function describeHost(msg: HostMessage): string {
       return 'welcome';
     case 'layout':
       return msg.layout.templateId;
+    case 'noLayout':
+      return 'noLayout';
     case 'state':
       return Object.keys(msg.widgets).join();
     case 'status':
@@ -50,6 +52,17 @@ export function describeWidget(w: Widget): string {
   }
 }
 
+export function describeLook(l: Look): string {
+  switch (l.mode) {
+    case 'icon':
+      return l.icon;
+    case 'images':
+      return l.image + (l.on ?? '');
+    default:
+      return assertNever(l);
+  }
+}
+
 export function describeOutput(o: Output): string {
   return o.kind === 'vjoy' ? String(o.button) : o.input;
 }
@@ -64,11 +77,19 @@ export function mustNotCompile(msg: ClientMessage, w: Widget): void {
   }
   // @ts-expect-error minus is not on every widget
   void w.minus;
+  if (w.type === 'toggle' && w.look) {
+    // @ts-expect-error image only exists on the images look
+    void w.look.image;
+  }
+  // @ts-expect-error a rotary only exists on a switch
+  void w.rotary;
 }
 
 describe('generated protocol types', () => {
   it('narrow by the type discriminator', () => {
     expect(describeClient({ type: 'gesture', widgetId: 'w1', gesture: 'tap' })).toBe('w1:tap');
     expect(describeHost({ type: 'status', telemetry: true, gameListening: true })).toBe('true');
+    expect(describeHost({ type: 'noLayout' })).toBe('noLayout');
+    expect(describeLook({ mode: 'icon', icon: 'power' })).toBe('power');
   });
 });

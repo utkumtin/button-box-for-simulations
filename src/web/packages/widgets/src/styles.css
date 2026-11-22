@@ -1,0 +1,297 @@
+/* Realistic dark panel with backlit rubber buttons. Dynamic values (positions, sizes, rotation)
+   come from React style props; --u is 1 % of a widget's smaller side. No inline <style>, CSP safe. */
+
+.bbs-grid {
+  --bbs-panel: #14161a;
+  --bbs-rubber: #24272d;
+  --bbs-rubber-hi: #333740;
+  --bbs-bezel: #0a0b0d;
+  --bbs-text: #b9bec8;
+  --bbs-glow: #ffb347;
+  --bbs-green: #4be37a;
+  --bbs-amber: #ffb02e;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, #1d2026 0%, var(--bbs-panel) 60%, #0d0e11 100%);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: Barlow, system-ui, sans-serif;
+  font-weight: 600;
+}
+
+.bbs-w {
+  position: absolute;
+  box-sizing: border-box;
+  padding: calc(var(--u) * 5);
+  color: var(--bbs-text);
+  transition: filter 150ms;
+}
+
+.bbs-w.is-dim {
+  filter: saturate(0.2) brightness(0.65);
+}
+
+/* Square area centred in the widget, used by dual-action buttons and rotaries. */
+.bbs-square {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+
+.bbs-label {
+  font-size: calc(var(--u) * 11);
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  pointer-events: none;
+}
+
+.bbs-icon {
+  width: calc(var(--u) * 38);
+  height: calc(var(--u) * 38);
+  flex: none;
+  pointer-events: none;
+}
+
+.bbs-img {
+  max-width: 80%;
+  max-height: 70%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Toggle and encoder: bezel plus rubber cap. */
+.bbs-cap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--u) * 3);
+  border-radius: calc(var(--u) * 14);
+  border: calc(var(--u) * 3) solid var(--bbs-bezel);
+  background: linear-gradient(180deg, var(--bbs-rubber-hi), var(--bbs-rubber));
+  box-shadow:
+    inset 0 calc(var(--u) * 1.5) 0 rgba(255, 255, 255, 0.08),
+    0 calc(var(--u) * 2) calc(var(--u) * 4) rgba(0, 0, 0, 0.6);
+  transition:
+    transform 80ms,
+    box-shadow 150ms,
+    color 150ms;
+}
+
+.bbs-toggle.is-pressed .bbs-cap {
+  transform: translateY(calc(var(--u) * 1.5)) scale(0.97);
+  box-shadow: inset 0 calc(var(--u) * 2) calc(var(--u) * 5) rgba(0, 0, 0, 0.6);
+}
+
+.bbs-toggle.is-lit .bbs-cap {
+  color: var(--bbs-glow);
+  box-shadow:
+    inset 0 calc(var(--u) * 1.5) 0 rgba(255, 255, 255, 0.1),
+    0 0 calc(var(--u) * 10) rgba(255, 179, 71, 0.45);
+}
+
+.bbs-toggle.is-lit .bbs-img {
+  filter: brightness(1.3) drop-shadow(0 0 calc(var(--u) * 6) var(--bbs-glow));
+}
+
+.bbs-toggle.is-lit .bbs-label,
+.bbs-backlit {
+  text-shadow: 0 0 calc(var(--u) * 6) currentcolor;
+}
+
+/* Encoder: two halves split at the vertical centre line. */
+.bbs-encoder .bbs-cap {
+  flex-direction: row;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.bbs-half {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 80ms;
+}
+
+.bbs-half + .bbs-half {
+  border-left: calc(var(--u) * 2) solid var(--bbs-bezel);
+}
+
+.bbs-half.is-pressed {
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 calc(var(--u) * 2) calc(var(--u) * 5) rgba(0, 0, 0, 0.6);
+}
+
+.bbs-encoder-label {
+  position: absolute;
+  bottom: calc(var(--u) * 4);
+  left: 0;
+  right: 0;
+}
+
+/* Dual-action: LED pill above a round metallic button. */
+.bbs-led {
+  position: absolute;
+  top: calc(var(--u) * 4);
+  left: 50%;
+  width: calc(var(--u) * 30);
+  height: calc(var(--u) * 9);
+  transform: translateX(-50%);
+  border-radius: calc(var(--u) * 5);
+  background: #1b1d21;
+  border: calc(var(--u) * 1.5) solid var(--bbs-bezel);
+  transition:
+    background-color 150ms,
+    box-shadow 150ms;
+}
+
+.bbs-led-green {
+  background: var(--bbs-green);
+  box-shadow: 0 0 calc(var(--u) * 8) var(--bbs-green);
+}
+
+.bbs-led-amber {
+  background: var(--bbs-amber);
+  box-shadow: 0 0 calc(var(--u) * 8) var(--bbs-amber);
+}
+
+.bbs-round {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--u) * 54);
+  width: calc(var(--u) * 78);
+  height: calc(var(--u) * 78);
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: calc(var(--u) * 3) solid var(--bbs-bezel);
+  background: conic-gradient(from 30deg, #5b606a, #8d929c, #4a4e57, #9aa0aa, #5b606a);
+  box-shadow: 0 calc(var(--u) * 2) calc(var(--u) * 5) rgba(0, 0, 0, 0.6);
+  color: #20232a;
+  transition:
+    transform 80ms,
+    color 150ms;
+}
+
+.bbs-dual.is-pressed .bbs-round {
+  transform: translate(-50%, calc(-50% + var(--u) * 1.5)) scale(0.96);
+}
+
+.bbs-dual.is-lit .bbs-round {
+  color: #ff8a00;
+}
+
+.bbs-dual .bbs-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border-radius: 50%;
+}
+
+.bbs-dual .bbs-label {
+  position: relative;
+}
+
+/* Rotary switch. */
+.bbs-layer,
+.bbs-knob-turn {
+  position: absolute;
+  pointer-events: none;
+}
+
+.bbs-fill {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.bbs-base-code {
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #2a2d34, #15171b 70%);
+  box-shadow: 0 0 0 calc(var(--u) * 2) var(--bbs-bezel);
+}
+
+.bbs-knob-turn {
+  transition: transform 180ms ease-out;
+}
+
+.bbs-knob-code {
+  position: relative;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 30%, #6b707a, #2b2e35 70%);
+  box-shadow: 0 calc(var(--u) * 3) calc(var(--u) * 6) rgba(0, 0, 0, 0.7);
+}
+
+.bbs-knob-code::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 6%;
+  width: 6%;
+  height: 32%;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--bbs-glow);
+}
+
+.bbs-highlight-code {
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.18), transparent 55%);
+}
+
+.bbs-switch.is-pressed .bbs-knob-code {
+  filter: brightness(1.15);
+}
+
+.bbs-poslabel {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: calc(var(--u) * 9);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bbs-text);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.bbs-poslabel .bbs-icon {
+  width: calc(var(--u) * 14);
+  height: calc(var(--u) * 14);
+}
+
+.bbs-poslabel.is-current {
+  opacity: 1;
+  color: var(--bbs-glow);
+}
+
+.bbs-switch-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}

@@ -43,6 +43,14 @@ dotnet format src/host/ButtonBox.slnx --verify-no-changes
 ```
 
 ```powershell
+# End-to-end test: the built phone client in WebKit against a test host with the Simulator (after the two blocks above)
+cd src/web
+pnpm exec playwright install webkit   # once; downloads Playwright's WebKit build
+pnpm e2e
+cd ../..
+```
+
+```powershell
 # SCS plugin
 cmake -S src/plugins/scs -B src/plugins/scs/build -G "Visual Studio 18 2026" -A x64
 cmake --build src/plugins/scs/build --config Release

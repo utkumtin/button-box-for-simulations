@@ -68,6 +68,14 @@ jobs:
       - name: Host test
         run: dotnet test src/host/ButtonBox.slnx -c Release
 
+      - name: Install WebKit for Playwright
+        working-directory: src/web
+        run: pnpm exec playwright install webkit
+
+      - name: E2E test
+        working-directory: src/web
+        run: pnpm e2e
+
       - name: Host format
         run: dotnet format src/host/ButtonBox.slnx --verify-no-changes
 

@@ -2,8 +2,12 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { clearDevice, loadDevice, saveDevice, type StoredDevice } from './lib/device';
 import { isStandalone } from './lib/mode';
 import { isPortrait } from './lib/screen';
+import { ButtonGrid } from '@bbs/widgets';
+import { panelNote } from './lib/hostModel';
 import { useConnection } from './lib/useConnection';
 import { Pairing } from './Pairing';
+
+const assetUrl = (assetId: string) => `/assets/${assetId}`;
 
 function useViewport() {
   const [size, setSize] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
@@ -49,7 +53,7 @@ function Session({
   onForget: () => void;
   onReconnect: () => void;
 }) {
-  const status = useConnection(device.token, onForget);
+  const { status, host, sendGesture } = useConnection(device.token, onForget);
   if (status === 'replaced') {
     return (
       <Message title="Connected in another window">
@@ -59,16 +63,41 @@ function Session({
       </Message>
     );
   }
+  const connected = status === 'connected';
+  const overlay = !connected && (
+    <div className="overlay" role="status">
+      {status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
+    </div>
+  );
+  // A layout received earlier in this session stays on screen (disabled) while reconnecting.
+  if (host.layout) {
+    const { dim, label } = panelNote(host.status);
+    return (
+      <>
+        <div className="panel">
+          <div className="panel-grid">
+            <ButtonGrid
+              layout={host.layout}
+              states={host.states}
+              dim={dim}
+              enabled={connected}
+              onGesture={sendGesture}
+              assetUrl={assetUrl}
+            />
+          </div>
+          {label && <div className="panel-note">{label}</div>}
+        </div>
+        {overlay}
+      </>
+    );
+  }
+  if (connected && host.noLayout) {
+    return <Message title="No layout for this device in the active profile." />;
+  }
   return (
     <>
-      <Message title={status === 'connected' ? 'Connected' : 'Connecting…'}>
-        {status === 'connected' && <p>Connected. No layout yet.</p>}
-      </Message>
-      {status !== 'connected' && (
-        <div className="overlay" role="status">
-          {status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
-        </div>
-      )}
+      <Message title={connected ? 'Connected' : 'Connecting…'} />
+      {overlay}
     </>
   );
 }

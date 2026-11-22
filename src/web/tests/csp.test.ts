@@ -12,10 +12,10 @@ function read(app: 'client' | 'editor'): string {
   return readFileSync(path, 'utf8');
 }
 
-function assetRefs(html: string): string[] {
+function assetRefs(html: string, dir: string): string[] {
   return [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)]
     .map((m) => m[1] ?? '')
-    .filter((r) => r.includes('assets/'));
+    .filter((r) => r.includes(`${dir}/`));
 }
 
 describe.each(['client', 'editor'] as const)('%s dist/index.html respects the strict CSP', (app) => {
@@ -45,14 +45,16 @@ describe.each(['client', 'editor'] as const)('%s dist/index.html respects the st
 
 describe('asset base paths', () => {
   it('editor references assets under /editor/', () => {
-    const assets = assetRefs(read('editor'));
+    const assets = assetRefs(read('editor'), 'assets');
     expect(assets.length).toBeGreaterThan(0);
     for (const r of assets) expect(r).toMatch(/^\/editor\/assets\//);
   });
 
-  it('client references assets under /', () => {
-    const assets = assetRefs(read('client'));
+  // /assets/ on the LAN server is the image route (decisions §7); the client bundle must not live there.
+  it('client references its bundle under /static/', () => {
+    const assets = assetRefs(read('client'), 'static');
     expect(assets.length).toBeGreaterThan(0);
-    for (const r of assets) expect(r).toMatch(/^\/assets\//);
+    for (const r of assets) expect(r).toMatch(/^\/static\//);
+    expect(read('client')).not.toMatch(/="\/assets\//);
   });
 });

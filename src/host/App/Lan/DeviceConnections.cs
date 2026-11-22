@@ -35,7 +35,8 @@ public sealed class DeviceConnectionsOptions
 /// <summary>
 /// The phone WebSocket handler and the table of authenticated connections (decisions §9 "Device session").
 /// Every byte from the phone is untrusted: text only, at most <see cref="DeviceConnectionsOptions.MaxMessageBytes"/> assembled,
-/// strict schema, hello first, rate limited. In Phase 2 gestures and selections are validated and then dropped.
+/// strict schema, hello first, rate limited. Gestures and selections go to the <see cref="GameSession"/> (when there is one);
+/// every data frame to the phone goes through its <see cref="FrameSender"/>.
 /// </summary>
 public sealed class DeviceConnections : IAsyncDisposable
 {
@@ -51,16 +52,21 @@ public sealed class DeviceConnections : IAsyncDisposable
     private readonly DeviceConnectionsOptions _o;
     private readonly Func<string, DeviceRecord?> _authenticate;
     private readonly Func<string, bool> _deviceExists;
+    private readonly GameSession? _session;
     private readonly object _gate = new();
     private readonly Dictionary<string, Connection> _byDevice = new(StringComparer.Ordinal);
     private readonly HashSet<Connection> _all = [];
     private int _unauthenticated;
 
-    public DeviceConnections(DeviceRegistry registry, DeviceConnectionsOptions? options = null)
+    /// <param name="registry">The paired devices.</param>
+    /// <param name="options">Limits and test seams.</param>
+    /// <param name="session">The game side. Null (tests of the handshake only): welcome is sent, gestures are dropped, no layout or state.</param>
+    public DeviceConnections(DeviceRegistry registry, DeviceConnectionsOptions? options = null, GameSession? session = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         _registry = registry;
         _o = options ?? new DeviceConnectionsOptions();
+        _session = session;
         _authenticate = _o.Authenticate ?? (token => registry.Authenticate(token));
         _deviceExists = _o.DeviceExists ?? (id => registry.Devices.Any(d => d.Id == id));
         registry.Revoked += OnRevoked;
@@ -211,6 +217,9 @@ public sealed class DeviceConnections : IAsyncDisposable
         private int _helloSeen;
         private int _countsAsUnauthenticated = 1;
         private ITimer? _helloTimer;
+        private readonly SemaphoreSlim _sendLock = new(1, 1); // one frame on the wire at a time: data frames and close frames
+        private FrameSender? _sender;
+        private PhoneLink? _link;
 
         public string? DeviceId { get; set; }
 
@@ -317,7 +326,13 @@ public sealed class DeviceConnections : IAsyncDisposable
                         return;
                     }
 
-                    continue; // gesture / select: validated, then dropped until layouts exist (Phase 3)
+                    if (!HandleGesture(parsed))
+                    {
+                        await CloseFromLoopAsync(socket, (int)WebSocketCloseStatus.InternalServerError);
+                        return;
+                    }
+
+                    continue;
                 }
 
                 if (parsed is not HelloMessage hello)
@@ -368,8 +383,39 @@ public sealed class DeviceConnections : IAsyncDisposable
             }
 
             LeaveUnauthenticated();
-            await socket.SendAsync(WelcomeJson, WebSocketMessageType.Text, true, CancellationToken.None);
+            StartSession(socket, device);
             return true;
+        }
+
+        // Only after the re-check passed: a connection closed with 4401 never saw a layout and never joined the fan-out.
+        // Order: join the fan-out, then load the header. A change in between only sets a flag, so it is never missed.
+        private void StartSession(WebSocket socket, DeviceRecord device)
+        {
+            var sender = new FrameSender(socket, _sendLock, () => Volatile.Read(ref _closeCode) != 0, () => _ = RequestCloseAsync((int)WebSocketCloseStatus.InternalServerError));
+            _sender = sender;
+            if (owner._session is not { } session)
+            {
+                sender.Start([WelcomeJson], null, null);
+                return;
+            }
+
+            var link = session.Open(device.TemplateId, sender);
+            _link = link;
+            sender.Start([WelcomeJson, link.LayoutFrame], link.BuildStatus, link.Layout is null ? null : link.BuildState);
+        }
+
+        // False: the engine threw, which is a host bug; the connection is closed with 1011 rather than left half alive.
+        private bool HandleGesture(ClientMessage message)
+        {
+            try
+            {
+                _link?.Handle(message);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private async Task<Received> ReceiveMessageAsync(WebSocket socket, byte[] message, byte[] chunk, CancellationToken aborted)
@@ -408,27 +454,46 @@ public sealed class DeviceConnections : IAsyncDisposable
                 return; // another thread already closes with its own code (replaced, revoked, timeout)
             }
 
-            try
+            await UnderSendLockAsync(socket, async () =>
             {
                 using var cts = new CancellationTokenSource(CloseTimeout);
                 await socket.CloseAsync((WebSocketCloseStatus)code, null, cts.Token);
-            }
-            catch (Exception e) when (e is OperationCanceledException or WebSocketException or IOException or ObjectDisposedException)
-            {
-                socket.Abort();
-            }
+            });
         }
 
-        private static async Task SendCloseOutputAsync(WebSocket socket, int code)
-        {
-            try
+        private Task SendCloseOutputAsync(WebSocket socket, int code) =>
+            UnderSendLockAsync(socket, async () =>
             {
                 using var cts = new CancellationTokenSource(CloseTimeout);
                 await socket.CloseOutputAsync((WebSocketCloseStatus)code, null, cts.Token);
+            });
+
+        // A close frame never overlaps a data frame of the sender. The close code is already set, so no data frame starts after this
+        // lock is taken; one in progress is waited for, bounded, and then the socket is cut.
+        private async Task UnderSendLockAsync(WebSocket socket, Func<Task> action)
+        {
+            var locked = false;
+            try
+            {
+                locked = await _sendLock.WaitAsync(CloseTimeout);
+                if (!locked)
+                {
+                    socket.Abort();
+                    return;
+                }
+
+                await action();
             }
             catch (Exception e) when (e is OperationCanceledException or WebSocketException or IOException or ObjectDisposedException or InvalidOperationException)
             {
                 socket.Abort();
+            }
+            finally
+            {
+                if (locked)
+                {
+                    _sendLock.Release();
+                }
             }
         }
 
@@ -437,19 +502,21 @@ public sealed class DeviceConnections : IAsyncDisposable
             _helloTimer?.Dispose();
             LeaveUnauthenticated();
             owner.Remove(this);
+            _link?.Dispose(); // leave the fan-out before the sender stops
+            if (_sender is not null)
+            {
+                await _sender.DisposeAsync();
+            }
+
             if (socket is not null)
             {
-                try
+                if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
                 {
-                    if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+                    await UnderSendLockAsync(socket, async () =>
                     {
                         using var cts = new CancellationTokenSource(CloseTimeout);
                         await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, cts.Token);
-                    }
-                }
-                catch (Exception e) when (e is OperationCanceledException or WebSocketException or IOException or ObjectDisposedException or InvalidOperationException)
-                {
-                    socket.Abort();
+                    });
                 }
 
                 socket.Dispose();

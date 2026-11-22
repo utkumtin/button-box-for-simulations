@@ -50,6 +50,12 @@ public sealed class LanHostOptions
 
     /// <summary>Test seam for the WebSocket limits (hello timeout, keepalive, ...).</summary>
     public DeviceConnectionsOptions? ConnectionOptions { get; init; }
+
+    /// <summary>The game side the phones talk to. The caller owns it and disposes it after this host. Null only in tests of the LAN plumbing.</summary>
+    public GameSession? Session { get; init; }
+
+    /// <summary>The images served at <c>/assets/{sha256}</c>. Null: none.</summary>
+    public AssetStore? Assets { get; init; }
 }
 
 public enum LanHostProblem
@@ -96,7 +102,7 @@ public sealed class LanHost : IAsyncDisposable
         _o = options;
         _bind = options.BindAddress ?? (a => a.Address);
         _icon = AppleTouchIcon.Render(options.LogoPng);
-        Connections = new DeviceConnections(options.Registry, options.ConnectionOptions ?? new DeviceConnectionsOptions { Time = options.Time });
+        Connections = new DeviceConnections(options.Registry, options.ConnectionOptions ?? new DeviceConnectionsOptions { Time = options.Time }, options.Session);
     }
 
     /// <summary>Raised when <see cref="Status"/>, <see cref="Problem"/> or <see cref="MdnsProblem"/> changed. Handlers must not throw or block.</summary>
@@ -340,6 +346,7 @@ public sealed class LanHost : IAsyncDisposable
                 AppleTouchIconPng = _icon,
                 Connections = Connections,
                 Pairing = _pairing!,
+                Assets = _o.Assets,
                 Time = _o.Time,
             });
             lock (_gate)

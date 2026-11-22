@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.AspNetCore.StaticFiles;
@@ -47,11 +48,14 @@ public sealed class LanServerOptions
 
     public required PairingSession Pairing { get; init; }
 
+    /// <summary>The images served at <c>/assets/{sha256}</c>. Null: every asset request is a 404.</summary>
+    public AssetStore? Assets { get; init; }
+
     public TimeProvider Time { get; init; } = TimeProvider.System;
 }
 
 /// <summary>
-/// The LAN HTTPS server (decisions §3): the phone client, <c>/api/pair</c>, <c>/ws</c> and the home-screen icon. Nothing else.
+/// The LAN HTTPS server (decisions §3): the phone client, <c>/api/pair</c>, <c>/ws</c>, <c>/assets/{sha256}</c> and the home-screen icon. Nothing else.
 /// The editor API never exists here.
 /// </summary>
 public sealed class LanServer : IAsyncDisposable
@@ -194,6 +198,10 @@ public sealed class LanServer : IAsyncDisposable
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 }
             }
+            else if (IsAssetRequest(context, out var assetId))
+            {
+                await HandleAssetAsync(context, assetId);
+            }
             else if (path.Equals("/apple-touch-icon.png", StringComparison.Ordinal) && HttpMethods.IsGet(context.Request.Method))
             {
                 context.Response.ContentType = "image/png";
@@ -208,6 +216,46 @@ public sealed class LanServer : IAsyncDisposable
         });
         _app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
         _app.UseStaticFiles(new StaticFileOptions { FileProvider = files, ContentTypeProvider = contentTypes });
+    }
+
+    private const string AssetPrefix = "/assets/";
+
+    // Decided on the raw request target as well as on the normalized path: Kestrel decodes %2e and removes dot segments before
+    // Request.Path is set, so "/assets/%2e%2e" would otherwise leave the route and fall through to the static files.
+    private static bool IsAssetRequest(HttpContext context, out string rawId)
+    {
+        var target = context.Features.Get<IHttpRequestFeature>()?.RawTarget ?? string.Empty;
+        var query = target.IndexOf('?', StringComparison.Ordinal);
+        if (query >= 0)
+        {
+            target = target[..query];
+        }
+
+        var raw = target.StartsWith(AssetPrefix, StringComparison.Ordinal);
+        rawId = raw ? target[AssetPrefix.Length..] : string.Empty;
+        return raw || context.Request.Path.StartsWithSegments("/assets", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Not authenticated: the images are not secret and a phone must load them before any token check matters. The id is the
+    // hash of bytes the host holds, so there is nothing to guess into or to traverse. Anything but an exact hit is a plain 404.
+    private async Task HandleAssetAsync(HttpContext context, string id)
+    {
+        var response = context.Response;
+        var head = HttpMethods.IsHead(context.Request.Method);
+        if ((!head && !HttpMethods.IsGet(context.Request.Method)) || _o.Assets is not { } assets || !assets.TryGet(id, out var bytes))
+        {
+            response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        response.StatusCode = StatusCodes.Status200OK;
+        response.ContentType = "image/png";
+        response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        response.ContentLength = bytes.Length;
+        if (!head)
+        {
+            await response.Body.WriteAsync(bytes, context.RequestAborted);
+        }
     }
 
     private void BuildOrigins()

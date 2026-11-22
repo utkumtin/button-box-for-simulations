@@ -138,6 +138,9 @@
           "$ref": "#/definitions/layoutMessage"
         },
         {
+          "$ref": "#/definitions/noLayoutMessage"
+        },
+        {
           "$ref": "#/definitions/stateMessage"
         },
         {
@@ -153,6 +156,7 @@
         "mapping": {
           "welcome": "#/definitions/welcomeMessage",
           "layout": "#/definitions/layoutMessage",
+          "noLayout": "#/definitions/noLayoutMessage",
           "state": "#/definitions/stateMessage",
           "status": "#/definitions/statusMessage"
         }
@@ -204,6 +208,26 @@
             },
             "layout": {
               "$ref": "layout.schema.json"
+            }
+          }
+        }
+      ]
+    },
+    "noLayoutMessage": {
+      "title": "NoLayoutMessage",
+      "description": "The active profile has no layout for this device's template.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/hostMessageBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "noLayout"
             }
           }
         }

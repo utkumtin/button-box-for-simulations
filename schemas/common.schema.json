@@ -50,6 +50,20 @@
         "colSpan": { "type": "integer", "minimum": 1, "maximum": 64 },
         "rowSpan": { "type": "integer", "minimum": 1, "maximum": 64 }
       }
+    },
+    "assetId": {
+      "title": "AssetId",
+      "description": "Lowercase hex SHA-256 of an asset file; the phone loads it from /assets/<assetId>.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "maxLength": 64
+    },
+    "telemetryField": {
+      "title": "TelemetryField",
+      "description": "A game telemetry field name, e.g. truck.light.beacon or isEngineRunning.",
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,63}$",
+      "maxLength": 64
     }
   }
 }

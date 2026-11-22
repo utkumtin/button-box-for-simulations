@@ -1,0 +1,126 @@
+import { expect, test as base, type Locator, type Page } from '@playwright/test';
+import { Control, hostInfo, type DeviceRecord, type Received } from './host';
+
+/** One scripted touch event. `wait` pauses (ms) after the event. */
+export interface TouchStep {
+  type: 'down' | 'move' | 'up' | 'cancel';
+  id: number;
+  x: number;
+  y: number;
+  wait?: number;
+}
+
+export interface Box {
+  page: Page;
+  /** Outputs received by the Simulator since the box was opened. */
+  received: () => Promise<Received[]>;
+  widget: (id: string) => Locator;
+  /** A real WebKit touch tap at a point of a widget (fractions of its width and height). */
+  tap: (id: string, fx?: number, fy?: number) => Promise<void>;
+  /** Pointer events with pointerType "touch", dispatched on the grid in one go. Needed for hold, drag and a second finger. */
+  touch: (steps: TouchStep[]) => Promise<void>;
+  point: (id: string, fx: number, fy: number) => Promise<{ x: number; y: number }>;
+}
+
+interface Fixtures {
+  control: Control;
+  open: (device?: 'phone' | 'noLayout') => Promise<Box>;
+}
+
+interface Violation {
+  directive: string;
+  blocked: string;
+}
+
+declare global {
+  interface Window {
+    __csp: Violation[];
+  }
+}
+
+/**
+ * A page in standalone mode with the device stored, like an installed home-screen app. Every test fails when a CSP violation
+ * or an uncaught page error happened (decisions section 13).
+ */
+export const test = base.extend<Fixtures>({
+  // eslint-disable-next-line no-empty-pattern
+  control: async ({}, provide) => {
+    const control = new Control(hostInfo());
+    // Every test starts with a listening game and telemetry.
+    await control.setState({ telemetry: true, gameListening: true, engineNeverStarts: false });
+    await provide(control);
+    await control.setState({ telemetry: true, gameListening: true, engineNeverStarts: false });
+  },
+
+  open: async ({ page, control }, provide) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+    let opened = false;
+
+    await provide(async (which = 'phone') => {
+      const info = hostInfo();
+      const device: DeviceRecord = info.devices[which];
+      await page.addInitScript((record) => {
+        Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
+        window.__csp = [];
+        document.addEventListener('securitypolicyviolation', (e) => {
+          window.__csp.push({ directive: e.violatedDirective, blocked: e.blockedURI });
+        });
+        try {
+          localStorage.setItem('bbs.device', JSON.stringify(record));
+        } catch {
+          // The test fails later on a missing grid.
+        }
+      }, device);
+      const baseline = (await control.received()).length;
+      await page.goto(`https://127.0.0.1:${info.port}/`);
+      opened = true;
+
+      const widget = (id: string) => page.locator(`[data-widget-id="${id}"]`);
+      const point = async (id: string, fx: number, fy: number) => {
+        const box = await widget(id).boundingBox();
+        if (!box) throw new Error(`Widget ${id} is not visible.`);
+        return { x: box.x + box.width * fx, y: box.y + box.height * fy };
+      };
+      return {
+        page,
+        received: async () => (await control.received()).slice(baseline),
+        widget,
+        point,
+        tap: async (id, fx = 0.5, fy = 0.5) => {
+          const { x, y } = await point(id, fx, fy);
+          await page.touchscreen.tap(x, y);
+        },
+        touch: (steps) =>
+          page.evaluate(async (list) => {
+            const grid = document.querySelector('.bbs-grid');
+            if (!grid) throw new Error('No grid.');
+            const names = { down: 'pointerdown', move: 'pointermove', up: 'pointerup', cancel: 'pointercancel' } as const;
+            for (const s of list) {
+              grid.dispatchEvent(
+                new PointerEvent(names[s.type], {
+                  pointerId: s.id,
+                  pointerType: 'touch',
+                  isPrimary: s.id === 1,
+                  clientX: s.x,
+                  clientY: s.y,
+                  button: s.type === 'move' ? -1 : 0,
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+              if (s.wait) await new Promise((r) => setTimeout(r, s.wait));
+            }
+          }, steps),
+      };
+    });
+
+    if (opened) {
+      const csp = await page.evaluate(() => window.__csp).catch(() => [] as Violation[]);
+      expect(csp, 'CSP violations').toEqual([]);
+      expect(errors, 'page errors').toEqual([]);
+    }
+  },
+});
+
+export { expect };

@@ -146,6 +146,7 @@
           "ButtonBox.Core": "[1.0.0, )",
           "ButtonBox.Discovery": "[1.0.0, )",
           "ButtonBox.Security": "[1.0.0, )",
+          "ButtonBox.Simulator": "[1.0.0, )",
           "Microsoft.Web.WebView2": "[1.0.4314.35, )"
         }
       },
@@ -156,6 +157,12 @@
         "type": "Project"
       },
       "buttonbox.security": {
+        "type": "Project",
+        "dependencies": {
+          "ButtonBox.Core": "[1.0.0, )"
+        }
+      },
+      "buttonbox.simulator": {
         "type": "Project",
         "dependencies": {
           "ButtonBox.Core": "[1.0.0, )"

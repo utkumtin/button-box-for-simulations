@@ -19,6 +19,12 @@
         "dependencies": {
           "ButtonBox.Core": "[1.0.0, )"
         }
+      },
+      "buttonbox.simulator": {
+        "type": "Project",
+        "dependencies": {
+          "ButtonBox.Core": "[1.0.0, )"
+        }
       }
     }
   }

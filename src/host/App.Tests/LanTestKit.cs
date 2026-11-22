@@ -183,10 +183,10 @@ internal sealed class LanRig : IAsyncDisposable
 
     public string DefaultOrigin => $"https://{LanFixture.Label}.local:{HttpsPort}";
 
-    public static async Task<LanRig> StartAsync(LanFixture fixture, DeviceConnectionsOptions? connectionOptions = null, byte[]? icon = null)
+    public static async Task<LanRig> StartAsync(LanFixture fixture, DeviceConnectionsOptions? connectionOptions = null, byte[]? icon = null, GameSession? session = null, AssetStore? assets = null)
     {
         var certificate = fixture.Ca.IssueServerCertificate(LanFixture.Label + ".local", [LanFixture.FakeLan]);
-        var connections = new DeviceConnections(fixture.Registry, connectionOptions ?? new DeviceConnectionsOptions { Time = fixture.Time });
+        var connections = new DeviceConnections(fixture.Registry, connectionOptions ?? new DeviceConnectionsOptions { Time = fixture.Time }, session);
         var httpsPort = LanFixture.FreePort();
         var primary = LanFixture.FreePort();
         var fallback = LanFixture.FreePort();
@@ -213,6 +213,7 @@ internal sealed class LanRig : IAsyncDisposable
             AppleTouchIconPng = AppleTouchIcon.Render(icon ?? LanFixture.MakeLogo()),
             Connections = connections,
             Pairing = pairing,
+            Assets = assets,
             Time = fixture.Time,
         });
         return new LanRig(fixture, certificate, connections, pairing, server, primary, fallback);
@@ -282,6 +283,60 @@ internal sealed class LanRig : IAsyncDisposable
         var result = await socket.ReceiveAsync(buffer, timeout.Token);
         Assert.Equal(WebSocketMessageType.Text, result.MessageType);
         return Encoding.UTF8.GetString(buffer, 0, result.Count);
+    }
+
+    /// <summary>Reads one whole text message (any size), not just the first 1 KiB.</summary>
+    public static async Task<string> ReadFrameAsync(WebSocket socket)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(LanFixture.Ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var buffer = new byte[4096];
+        using var message = new MemoryStream();
+        while (true)
+        {
+            var result = await socket.ReceiveAsync(buffer, timeout.Token);
+            Assert.Equal(WebSocketMessageType.Text, result.MessageType);
+            message.Write(buffer, 0, result.Count);
+            if (result.EndOfMessage)
+            {
+                return Encoding.UTF8.GetString(message.ToArray());
+            }
+        }
+    }
+
+    /// <summary>Reads every text frame until the server's close frame arrives. Returns the frames and the close code.</summary>
+    public static async Task<(List<string> Frames, int CloseCode)> ReadUntilCloseAsync(WebSocket socket)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(LanFixture.Ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var buffer = new byte[4096];
+        var frames = new List<string>();
+        using var message = new MemoryStream();
+        while (true)
+        {
+            var result = await socket.ReceiveAsync(buffer, timeout.Token);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                var code = (int)result.CloseStatus!.Value;
+                try
+                {
+                    await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, timeout.Token); // answer, so the server need not wait to cut us off
+                }
+                catch (Exception e) when (e is WebSocketException or OperationCanceledException or ObjectDisposedException)
+                {
+                    // Already gone.
+                }
+
+                return (frames, code);
+            }
+
+            message.Write(buffer, 0, result.Count);
+            if (result.EndOfMessage)
+            {
+                frames.Add(Encoding.UTF8.GetString(message.ToArray()));
+                message.SetLength(0);
+            }
+        }
     }
 
     /// <summary>Reads until the server's close frame arrives and returns its code.</summary>

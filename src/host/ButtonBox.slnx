@@ -9,5 +9,6 @@
   <Project Path="Security/ButtonBox.Security.csproj" />
   <Project Path="Simulator.Tests/ButtonBox.Simulator.Tests.csproj" />
   <Project Path="Simulator/ButtonBox.Simulator.csproj" />
+  <Project Path="Tools/E2EHost/E2EHost.csproj" />
   <Project Path="Tools/SchemaGen/SchemaGen.csproj" />
 </Solution>

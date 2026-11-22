@@ -102,3 +102,39 @@ form {
   background: rgb(0 0 0 / 0.7);
   font-size: 1.6rem;
 }
+
+/* Grid screen: fixed, so a drag never scrolls, bounces or zooms the panel (decisions §10). */
+html:has(.panel),
+body:has(.panel) {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.panel {
+  position: fixed;
+  inset: 0;
+  background: #14161a;
+  color: #b9bec8;
+  font-family: Barlow, system-ui, sans-serif;
+  font-weight: 600;
+}
+
+.panel-grid {
+  position: absolute;
+  top: env(safe-area-inset-top);
+  right: env(safe-area-inset-right);
+  bottom: env(safe-area-inset-bottom);
+  left: env(safe-area-inset-left);
+}
+
+.panel-note {
+  position: absolute;
+  top: max(4px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.8;
+  pointer-events: none;
+}

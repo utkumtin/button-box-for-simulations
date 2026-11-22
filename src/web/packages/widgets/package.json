@@ -13,5 +13,10 @@
   },
   "devDependencies": {
     "react": "19.3.1"
+  },
+  "dependencies": {
+    "@bbs/protocol": "workspace:*",
+    "@fontsource/barlow": "5.3.0",
+    "@mdi/js": "7.4.47"
   }
 }

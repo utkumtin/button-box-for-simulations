@@ -5,6 +5,7 @@ using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
 using ButtonBox.Discovery;
 using ButtonBox.Security;
+using ButtonBox.Simulator;
 
 namespace ButtonBox.App;
 
@@ -65,7 +66,7 @@ public sealed class AppHost : IAsyncDisposable
     private bool _startFailed;
     private bool _disposed;
 
-    private AppHost(AppHostOptions options, string? mdnsName, DeviceRegistry? registry, TemplateStore templates, SetupProblem problem)
+    private AppHost(AppHostOptions options, string? mdnsName, DeviceRegistry? registry, TemplateStore templates, SetupProblem problem, ScsSimulator simulator, DemoContent demo)
     {
         _o = options;
         _mdnsName = mdnsName;
@@ -73,6 +74,9 @@ public sealed class AppHost : IAsyncDisposable
         Templates = templates;
         Setup = problem;
         Secret = EditorSecret.Create();
+        Simulator = simulator;
+        Demo = demo;
+        Session = new GameSession(demo.Engine, simulator, simulator);
     }
 
     /// <summary>Raised when <see cref="Status"/> may have changed, on any thread. Handlers must not throw or block.</summary>
@@ -86,6 +90,15 @@ public sealed class AppHost : IAsyncDisposable
     public TemplateStore Templates { get; }
 
     public SetupProblem Setup { get; }
+
+    /// <summary>Until Phase 5 the Simulator (ETS2 model) is the app's only backend and state provider (decisions §3).</summary>
+    public ScsSimulator Simulator { get; }
+
+    /// <summary>The bundled read-only demo profile, catalog and images (decisions §3, §7).</summary>
+    public DemoContent Demo { get; }
+
+    /// <summary>Gestures in, outputs to the <see cref="Simulator"/>, telemetry out to every phone.</summary>
+    public GameSession Session { get; }
 
     /// <summary>The LAN side once <see cref="StartAsync"/> created it.</summary>
     public LanHost? Lan
@@ -122,7 +135,10 @@ public sealed class AppHost : IAsyncDisposable
         }
     }
 
-    /// <summary>Settings, then registry, then templates. Touches no port and no key.</summary>
+    /// <summary>
+    /// Settings, then registry, then templates, then the bundled demo. Touches no port and no key.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A bundled demo file is damaged. A bug, so it fails here, loudly, and never runs with an empty profile.</exception>
     public static AppHost Create(AppHostOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -141,7 +157,9 @@ public sealed class AppHost : IAsyncDisposable
         }
 
         var templates = new TemplateStore(options.ShippedTemplatesDir, Path.Combine(options.DataDir, "templates"));
-        return new AppHost(options, settings.MdnsName, registry, templates, problem);
+        var demo = DemoContent.Load();
+        var simulator = new ScsSimulator(options.Time);
+        return new AppHost(options, settings.MdnsName, registry, templates, problem, simulator, demo);
     }
 
     /// <summary>
@@ -188,6 +206,8 @@ public sealed class AppHost : IAsyncDisposable
         {
             await lan.DisposeAsync();
         }
+
+        await Session.DisposeAsync(); // after the phones are gone
     }
 
     private async Task RunStartAsync()
@@ -211,6 +231,8 @@ public sealed class AppHost : IAsyncDisposable
                 MdnsPort = _o.MdnsPort,
                 Time = _o.Time,
                 BindAddress = _o.BindAddress,
+                Session = Session,
+                Assets = Demo.Assets,
             });
             lan.StatusChanged += RaiseStatusChanged;
             lock (_gate)

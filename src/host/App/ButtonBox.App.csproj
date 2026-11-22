@@ -13,6 +13,20 @@
     <ProjectReference Include="..\Core\ButtonBox.Core.csproj" />
     <ProjectReference Include="..\Discovery\ButtonBox.Discovery.csproj" />
     <ProjectReference Include="..\Security\ButtonBox.Security.csproj" />
+    <ProjectReference Include="..\Simulator\ButtonBox.Simulator.csproj" />
+  </ItemGroup>
+
+  <!-- Phase 3 demo (decisions §3, §7): read-only profile, catalog and images, embedded until the Phase 4 profile store and asset library exist. -->
+  <PropertyGroup>
+    <AssetSourceDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\assets\source'))</AssetSourceDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Demo\demo.profile.json" LogicalName="demo/demo.profile.json" />
+    <EmbeddedResource Include="Demo\ets2-demo.catalog.json" LogicalName="demo/ets2-demo.catalog.json" />
+    <EmbeddedResource Include="$(AssetSourceDir)\rotary\base.png" LogicalName="demo/rotary-base.png" />
+    <EmbeddedResource Include="$(AssetSourceDir)\rotary\knob.png" LogicalName="demo/rotary-knob.png" />
+    <EmbeddedResource Include="$(AssetSourceDir)\engine-button\body.png" LogicalName="demo/engine-body.png" />
   </ItemGroup>
 
   <PropertyGroup>

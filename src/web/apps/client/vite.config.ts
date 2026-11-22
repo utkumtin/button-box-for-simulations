@@ -6,6 +6,8 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
+    // /assets/<sha256> is the host's image route (decisions §7), so the bundle lives elsewhere.
+    assetsDir: 'static',
     modulePreload: { polyfill: false },
   },
 });

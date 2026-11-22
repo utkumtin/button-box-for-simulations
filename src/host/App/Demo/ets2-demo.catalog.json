@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "game": "ets2",
+  "actions": [
+    {
+      "id": "ignition-on",
+      "name": "Ignition on",
+      "output": {
+        "kind": "scs",
+        "input": "ignitionon"
+      },
+      "stateField": "truck.electric.enabled"
+    },
+    {
+      "id": "ignition-off",
+      "name": "Ignition off",
+      "output": {
+        "kind": "scs",
+        "input": "ignitionoff"
+      }
+    },
+    {
+      "id": "starter",
+      "name": "Starter",
+      "output": {
+        "kind": "scs",
+        "input": "ignitionstrt"
+      },
+      "stateField": "truck.engine.enabled"
+    },
+    {
+      "id": "light-off",
+      "name": "Lights off",
+      "output": {
+        "kind": "scs",
+        "input": "lightoff"
+      }
+    },
+    {
+      "id": "light-park",
+      "name": "Lights parking",
+      "output": {
+        "kind": "scs",
+        "input": "lightpark"
+      },
+      "stateField": "truck.light.parking"
+    },
+    {
+      "id": "light-on",
+      "name": "Lights on",
+      "output": {
+        "kind": "scs",
+        "input": "lighton"
+      },
+      "stateField": "truck.light.beam.low"
+    },
+    {
+      "id": "high-beam",
+      "name": "High beam",
+      "output": {
+        "kind": "scs",
+        "input": "hblight"
+      },
+      "stateField": "truck.light.beam.high"
+    },
+    {
+      "id": "wipers-off",
+      "name": "Wipers off",
+      "output": {
+        "kind": "scs",
+        "input": "wipers0"
+      },
+      "stateField": "truck.wipers"
+    },
+    {
+      "id": "wipers-auto",
+      "name": "Wipers auto",
+      "output": {
+        "kind": "scs",
+        "input": "wipers1"
+      }
+    },
+    {
+      "id": "wipers-low",
+      "name": "Wipers low",
+      "output": {
+        "kind": "scs",
+        "input": "wipers2"
+      }
+    },
+    {
+      "id": "wipers-fast",
+      "name": "Wipers fast",
+      "output": {
+        "kind": "scs",
+        "input": "wipers3"
+      }
+    },
+    {
+      "id": "beacon",
+      "name": "Beacon",
+      "output": {
+        "kind": "scs",
+        "input": "beacon"
+      },
+      "stateField": "truck.light.beacon"
+    },
+    {
+      "id": "hazard",
+      "name": "Hazard lights",
+      "output": {
+        "kind": "scs",
+        "input": "flasher4way"
+      },
+      "stateField": "truck.hazard.warning"
+    },
+    {
+      "id": "parking-brake",
+      "name": "Parking brake",
+      "output": {
+        "kind": "scs",
+        "input": "parkingbrake"
+      },
+      "stateField": "truck.brake.parking"
+    },
+    {
+      "id": "retarder-down",
+      "name": "Retarder down",
+      "output": {
+        "kind": "scs",
+        "input": "retarderdown"
+      }
+    },
+    {
+      "id": "retarder-up",
+      "name": "Retarder up",
+      "output": {
+        "kind": "scs",
+        "input": "retarderup"
+      }
+    }
+  ]
+}

@@ -102,6 +102,9 @@
         },
         "longPressGuard": {
           "type": "boolean"
+        },
+        "state": {
+          "$ref": "#/definitions/stateBinding"
         }
       }
     },
@@ -123,6 +126,9 @@
             },
             "action": {
               "$ref": "common.schema.json#/definitions/id"
+            },
+            "look": {
+              "$ref": "#/definitions/look"
             }
           }
         }
@@ -181,6 +187,9 @@
             },
             "cycle": {
               "$ref": "common.schema.json#/definitions/id"
+            },
+            "rotary": {
+              "$ref": "#/definitions/rotary"
             }
           }
         }
@@ -204,6 +213,9 @@
           "maximum": 180
         },
         "action": {
+          "$ref": "common.schema.json#/definitions/id"
+        },
+        "icon": {
           "$ref": "common.schema.json#/definitions/id"
         }
       }
@@ -236,10 +248,155 @@
                 "fire",
                 "starterTakeover"
               ]
+            },
+            "look": {
+              "$ref": "#/definitions/look"
             }
           }
         }
       ]
+    },
+    "stateBinding": {
+      "title": "StateBinding",
+      "description": "Telemetry fields shown by the widget: non-zero means lit / LED green.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lit": {
+          "$ref": "common.schema.json#/definitions/telemetryField"
+        },
+        "led": {
+          "$ref": "common.schema.json#/definitions/telemetryField"
+        }
+      }
+    },
+    "look": {
+      "title": "Look",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/iconLook"
+        },
+        {
+          "$ref": "#/definitions/imagesLook"
+        }
+      ]
+    },
+    "lookBase": {
+      "title": "LookBase",
+      "type": "object",
+      "discriminator": {
+        "propertyName": "mode",
+        "mapping": {
+          "icon": "#/definitions/iconLook",
+          "images": "#/definitions/imagesLook"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "maxLength": 16
+        }
+      }
+    },
+    "iconLook": {
+      "title": "IconLook",
+      "description": "Tinted MDI icon; the key is the MDI name in the widget package's icon registry.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/lookBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "mode",
+            "icon"
+          ],
+          "properties": {
+            "mode": {
+              "const": "icon"
+            },
+            "icon": {
+              "$ref": "common.schema.json#/definitions/id"
+            }
+          }
+        }
+      ]
+    },
+    "imagesLook": {
+      "title": "ImagesLook",
+      "description": "One image; the lit state is produced in code unless an 'on' image is given.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/lookBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "mode",
+            "image"
+          ],
+          "properties": {
+            "mode": {
+              "const": "images"
+            },
+            "image": {
+              "$ref": "common.schema.json#/definitions/assetId"
+            },
+            "on": {
+              "$ref": "common.schema.json#/definitions/assetId"
+            }
+          }
+        }
+      ]
+    },
+    "rotary": {
+      "title": "Rotary",
+      "description": "Rotary layers. A missing layer is drawn in code.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "$ref": "#/definitions/rotaryLayer"
+        },
+        "knob": {
+          "$ref": "#/definitions/rotaryLayer"
+        },
+        "highlight": {
+          "$ref": "#/definitions/rotaryLayer"
+        }
+      }
+    },
+    "rotaryLayer": {
+      "title": "RotaryLayer",
+      "description": "An image layer with calibration: scale of the widget's square, centre offset as a fraction of it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset"
+      ],
+      "properties": {
+        "asset": {
+          "$ref": "common.schema.json#/definitions/assetId"
+        },
+        "scale": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 2
+        },
+        "offsetX": {
+          "type": "number",
+          "minimum": -0.5,
+          "maximum": 0.5
+        },
+        "offsetY": {
+          "type": "number",
+          "minimum": -0.5,
+          "maximum": 0.5
+        }
+      }
     }
   }
 }

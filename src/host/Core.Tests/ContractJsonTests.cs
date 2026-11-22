@@ -137,6 +137,57 @@ public class ContractJsonTests
     public void Client_message_without_type_is_rejected(string json) =>
         Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize<ClientMessage>(json, ContractJson.Options));
 
+    // Phase 3: the phone renders from these fields. A look that collapsed into one class, or a dropped
+    // state binding, would make widgets render wrong or never light up.
+    private const string Asset = "02abf8a01862694028bb6eed91cde12ab712b3e24337ef0905cbe4bcc539bff9";
+
+    private static readonly string LooksLayoutJson = """
+        {"schemaVersion":1,"templateId":"phone-a","grid":{"columns":4,"rows":2},"widgets":[
+         {"type":"toggle","id":"t1","cell":{"col":0,"row":0,"colSpan":1,"rowSpan":1},"action":"beacon","look":{"mode":"icon","icon":"alarm-light"},"state":{"lit":"truck.light.beacon"}},
+         {"type":"toggle","id":"t2","cell":{"col":1,"row":0,"colSpan":1,"rowSpan":1},"action":"beacon","look":{"mode":"images","image":"ASSET","on":"ASSET"}},
+         {"type":"switch","id":"s1","cell":{"col":2,"row":0,"colSpan":2,"rowSpan":2},"positions":[{"label":"OFF","angle":-30,"action":"a"},{"icon":"car-light-dimmed","angle":30,"action":"b"}],
+          "rotary":{"base":{"asset":"ASSET","scale":1},"knob":{"asset":"ASSET","scale":0.55,"offsetX":-0.01,"offsetY":0.02}}},
+         {"type":"dualAction","id":"d1","cell":{"col":0,"row":1,"colSpan":2,"rowSpan":1},"tap":"on","hold":"start","holdMode":"fire","look":{"mode":"images","image":"ASSET"},"state":{"lit":"truck.electric.enabled","led":"isEngineRunning"}}]}
+        """.Replace("ASSET", Asset, StringComparison.Ordinal);
+
+    [Fact]
+    public void Looks_rotary_and_state_bindings_round_trip()
+    {
+        var layout = RoundTrip<Layout>(LooksLayoutJson, typeof(Layout));
+        var icon = Assert.IsType<IconLook>(((ToggleWidget)layout.Widgets[0]).Look);
+        Assert.Equal("alarm-light", icon.Icon);
+        Assert.Equal("truck.light.beacon", layout.Widgets[0].State?.Lit);
+        var images = Assert.IsType<ImagesLook>(((ToggleWidget)layout.Widgets[1]).Look);
+        Assert.Equal(Asset, images.On);
+        var rotary = ((SwitchWidget)layout.Widgets[2]).Rotary;
+        Assert.Equal(0.55, rotary?.Knob?.Scale);
+        Assert.Null(rotary?.Highlight);
+        Assert.Equal("car-light-dimmed", ((SwitchWidget)layout.Widgets[2]).Positions[1].Icon);
+        var dual = (DualActionWidget)layout.Widgets[3];
+        Assert.IsType<ImagesLook>(dual.Look);
+        Assert.Equal("isEngineRunning", dual.State?.Led);
+    }
+
+    [Fact]
+    public void No_layout_message_round_trips() =>
+        RoundTrip<HostMessage>("""{"type":"noLayout"}""", typeof(NoLayoutMessage));
+
+    [Theory]
+    [InlineData("""{"mode":"rotary","icon":"x"}""")] // unknown look mode
+    [InlineData("""{"icon":"x"}""")] // no mode
+    [InlineData("""{"mode":"icon","icon":"x","image":"y"}""")] // field of another look
+    public void Bad_look_is_rejected(string look)
+    {
+        var json = $$"""{"schemaVersion":1,"templateId":"a","grid":{"columns":1,"rows":1},"widgets":[{"type":"toggle","id":"w","cell":{"col":0,"row":0,"colSpan":1,"rowSpan":1},"action":"x","look":{{look}}}]}""";
+        var ex = Record.Exception(() => JsonSerializer.Deserialize<Layout>(json, ContractJson.Options));
+        Assert.True(ex is JsonException or NotSupportedException, $"expected a rejection, got {ex?.GetType().Name ?? "none"}");
+    }
+
+    [Fact]
+    public void Unknown_field_in_a_rotary_layer_is_rejected()
+        => Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Rotary>(
+            $$$"""{"knob":{"asset":"{{{Asset}}}","rotation":5}}""", ContractJson.Options));
+
     [Fact]
     public void Widget_without_type_is_rejected() =>
         Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize<Widget>(

@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "id": "demo",
+  "name": "Simulator demo",
+  "game": "ets2",
+  "layouts": [
+    {
+      "schemaVersion": 1,
+      "templateId": "iphone-14-pro",
+      "grid": {
+        "columns": 8,
+        "rows": 3
+      },
+      "widgets": [
+        {
+          "type": "dualAction",
+          "id": "engine",
+          "cell": {
+            "col": 0,
+            "row": 0,
+            "colSpan": 2,
+            "rowSpan": 2
+          },
+          "label": "ENGINE START STOP",
+          "tap": "ignition-on",
+          "hold": "starter",
+          "holdMode": "fire",
+          "look": {
+            "mode": "images",
+            "image": "e744710295a932027d7feef53bfc06783e4f11eb5e89145f846ea07896c52572"
+          },
+          "state": {
+            "lit": "truck.electric.enabled",
+            "led": "truck.engine.enabled"
+          }
+        },
+        {
+          "type": "switch",
+          "id": "lights",
+          "cell": {
+            "col": 2,
+            "row": 0,
+            "colSpan": 2,
+            "rowSpan": 2
+          },
+          "label": "LIGHTS",
+          "positions": [
+            {
+              "label": "OFF",
+              "angle": -30,
+              "action": "light-off"
+            },
+            {
+              "label": "AUTO",
+              "angle": 0,
+              "action": "light-park"
+            },
+            {
+              "icon": "car-light-dimmed",
+              "angle": 30,
+              "action": "light-on"
+            }
+          ],
+          "rotary": {
+            "base": {
+              "asset": "02abf8a01862694028bb6eed91cde12ab712b3e24337ef0905cbe4bcc539bff9",
+              "scale": 1
+            },
+            "knob": {
+              "asset": "8e5488f4fcf1e99596ef42ef7fbc103f4d3c2af8fa4fb7b30271a4cb05af0087",
+              "scale": 0.55
+            }
+          }
+        },
+        {
+          "type": "switch",
+          "id": "wipers",
+          "cell": {
+            "col": 4,
+            "row": 0,
+            "colSpan": 2,
+            "rowSpan": 2
+          },
+          "label": "WIPERS",
+          "positions": [
+            {
+              "label": "OFF",
+              "angle": -30,
+              "action": "wipers-off"
+            },
+            {
+              "label": "AUTO",
+              "angle": 0,
+              "action": "wipers-auto"
+            },
+            {
+              "label": "LOW",
+              "angle": 30,
+              "action": "wipers-low"
+            },
+            {
+              "label": "FAST",
+              "angle": 60,
+              "action": "wipers-fast"
+            }
+          ],
+          "rotary": {
+            "base": {
+              "asset": "02abf8a01862694028bb6eed91cde12ab712b3e24337ef0905cbe4bcc539bff9",
+              "scale": 1
+            },
+            "knob": {
+              "asset": "8e5488f4fcf1e99596ef42ef7fbc103f4d3c2af8fa4fb7b30271a4cb05af0087",
+              "scale": 0.55
+            }
+          }
+        },
+        {
+          "type": "toggle",
+          "id": "high-beam",
+          "cell": {
+            "col": 6,
+            "row": 0,
+            "colSpan": 2,
+            "rowSpan": 2
+          },
+          "label": "HIGH BEAM",
+          "action": "high-beam",
+          "look": {
+            "mode": "icon",
+            "icon": "car-light-high"
+          },
+          "state": {
+            "lit": "truck.light.beam.high"
+          }
+        },
+        {
+          "type": "toggle",
+          "id": "beacon",
+          "cell": {
+            "col": 0,
+            "row": 2,
+            "colSpan": 2,
+            "rowSpan": 1
+          },
+          "label": "BEACON",
+          "action": "beacon",
+          "look": {
+            "mode": "icon",
+            "icon": "alarm-light"
+          },
+          "state": {
+            "lit": "truck.light.beacon"
+          }
+        },
+        {
+          "type": "toggle",
+          "id": "hazard",
+          "cell": {
+            "col": 2,
+            "row": 2,
+            "colSpan": 2,
+            "rowSpan": 1
+          },
+          "label": "HAZARD",
+          "action": "hazard",
+          "look": {
+            "mode": "icon",
+            "icon": "hazard-lights"
+          },
+          "state": {
+            "lit": "truck.hazard.warning"
+          }
+        },
+        {
+          "type": "toggle",
+          "id": "parking-brake",
+          "cell": {
+            "col": 4,
+            "row": 2,
+            "colSpan": 2,
+            "rowSpan": 1
+          },
+          "label": "PARKING BRAKE",
+          "action": "parking-brake",
+          "look": {
+            "mode": "icon",
+            "icon": "car-brake-parking"
+          },
+          "state": {
+            "lit": "truck.brake.parking"
+          }
+        },
+        {
+          "type": "encoder",
+          "id": "retarder",
+          "cell": {
+            "col": 6,
+            "row": 2,
+            "colSpan": 2,
+            "rowSpan": 1
+          },
+          "label": "RETARDER",
+          "minus": "retarder-down",
+          "plus": "retarder-up"
+        }
+      ]
+    }
+  ]
+}
