@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "editor-api.schema.json",
+  "title": "EditorApi",
+  "description": "Bodies of the loopback-only editor API (/editor/api/...).",
+  "definitions": {
+    "deviceName": {
+      "title": "DeviceName",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "deviceInfo": {
+      "title": "DeviceInfo",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "templateId", "connected", "screenMismatch"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/definitions/id" },
+        "name": { "$ref": "#/definitions/deviceName" },
+        "templateId": { "$ref": "common.schema.json#/definitions/id" },
+        "connected": { "type": "boolean" },
+        "screenMismatch": {
+          "description": "The screen the phone reported at pairing differs from its template.",
+          "type": "boolean"
+        }
+      }
+    },
+    "deviceList": {
+      "title": "DeviceList",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["devices"],
+      "properties": {
+        "devices": { "type": "array", "maxItems": 64, "items": { "$ref": "#/definitions/deviceInfo" } }
+      }
+    },
+    "renameDeviceRequest": {
+      "title": "RenameDeviceRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/definitions/deviceName" }
+      }
+    },
+    "templateList": {
+      "title": "TemplateList",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["templates"],
+      "properties": {
+        "templates": { "type": "array", "maxItems": 256, "items": { "$ref": "template.schema.json" } }
+      }
+    },
+    "startPairingRequest": {
+      "title": "StartPairingRequest",
+      "description": "templateId absent: the device is not listed and gets a generic template.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "templateId": { "$ref": "common.schema.json#/definitions/id" }
+      }
+    },
+    "pairingStatus": {
+      "title": "PairingStatus",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "title": "PairingState",
+          "type": "string",
+          "enum": ["closed", "caDownload", "codeShown", "paired", "failed"]
+        },
+        "address": {
+          "description": "Plain-HTTP address of the certificate page, with explicit scheme (and port when not 80).",
+          "type": "string",
+          "maxLength": 128
+        },
+        "caFingerprint": {
+          "description": "SHA-256 of the CA certificate, 64 upper-case hex digits.",
+          "type": "string",
+          "pattern": "^[0-9A-F]{64}$"
+        },
+        "code": { "type": "string", "pattern": "^[0-9]{6}$" },
+        "codeExpiresAt": { "type": "string", "format": "date-time" },
+        "attemptsLeft": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "deviceId": { "$ref": "common.schema.json#/definitions/id" },
+        "screenMismatch": { "type": "boolean" },
+        "failure": {
+          "title": "PairingFailure",
+          "type": "string",
+          "enum": ["codeExpired", "codeBurned", "portInUse"]
+        }
+      }
+    },
+    "hostStatus": {
+      "title": "HostStatus",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mdnsName", "lanServer", "addresses"],
+      "properties": {
+        "mdnsName": { "type": "string", "maxLength": 63 },
+        "lanServer": {
+          "title": "LanServerState",
+          "type": "string",
+          "enum": ["starting", "running", "portInUse", "noLanAddress", "caUnavailable", "devicesUnavailable", "startFailed"]
+        },
+        "portOwner": {
+          "description": "Process holding TCP 443 when lanServer is portInUse, if known.",
+          "type": "string",
+          "maxLength": 260
+        },
+        "addresses": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 15 } }
+      }
+    }
+  }
+}

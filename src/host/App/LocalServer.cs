@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Net;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -28,7 +30,14 @@ public sealed class LocalServer : IAsyncDisposable
     /// <summary>Resolved base address, e.g. http://127.0.0.1:54321/.</summary>
     public Uri BaseAddress { get; }
 
-    public static async Task<LocalServer> StartAsync(string clientDir, string editorDir)
+    /// <summary>The only Host this server answers to. Anything else (DNS rebinding, another name for loopback) gets 400.</summary>
+    internal static string HostFor(HttpContext context) => "127.0.0.1:" + context.Connection.LocalPort.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>The only Origin the editor API accepts on a POST.</summary>
+    internal static string OriginFor(HttpContext context) => "http://" + HostFor(context);
+
+    /// <param name="editorApi">When set, <c>/editor/api</c> is served. The API exists on this loopback server only, never on the LAN one.</param>
+    public static async Task<LocalServer> StartAsync(string clientDir, string editorDir, EditorApiOptions? editorApi = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
@@ -56,6 +65,24 @@ public sealed class LocalServer : IAsyncDisposable
 
         app.Use(async (context, next) =>
         {
+            if (!string.Equals(context.Request.Host.Value, HostFor(context), StringComparison.Ordinal))
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                return;
+            }
+
+            // No CORS anywhere: no preflight is ever answered, and no Access-Control-* header is ever sent.
+            if (HttpMethods.IsOptions(context.Request.Method))
+            {
+                context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+                return;
+            }
+
+            await next();
+        });
+
+        app.Use(async (context, next) =>
+        {
             if (context.Request.Path.Equals("/editor", StringComparison.Ordinal))
             {
                 context.Response.Redirect("/editor/");
@@ -63,6 +90,12 @@ public sealed class LocalServer : IAsyncDisposable
             }
             await next();
         });
+
+        if (editorApi is not null)
+        {
+            // Registered before "/editor" so the API never falls through to static files; Map matches case-insensitively.
+            app.Map("/editor/api", branch => branch.Run(context => EditorApi.HandleAsync(context, editorApi)));
+        }
 
         app.Map("/editor", branch => UseStatic(branch, editor));
         UseStatic(app, client);

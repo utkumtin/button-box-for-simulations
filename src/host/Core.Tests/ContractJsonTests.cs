@@ -94,6 +94,14 @@ public class ContractJsonTests
             """{"schemaVersion":1,"templateId":"a","grid":{"columns":1,"rows":1},"widgets":[{"type":"toggle","id":"w","cell":{"col":0,"row":0,"colSpan":1,"rowSpan":1},"action":"x","extra":1}]}""",
             ContractJson.Options));
 
+    // The schema allows only enum names. An integer would otherwise map silently to a gesture (3 = "plus").
+    [Theory]
+    [InlineData("""{"type":"gesture","widgetId":"a","gesture":3}""")]
+    [InlineData("""{"type":"gesture","widgetId":"a","gesture":"3"}""")]
+    [InlineData("""{"type":"gesture","widgetId":"a","gesture":"Tap"}""")]
+    public void Enum_must_be_one_of_its_names(string json)
+        => Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ClientMessage>(json, ContractJson.Options));
+
     [Fact]
     public void Missing_required_field_is_rejected()
         => Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ClientMessage>(

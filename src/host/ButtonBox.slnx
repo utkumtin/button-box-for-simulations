@@ -3,6 +3,10 @@
   <Project Path="App/ButtonBox.App.csproj" />
   <Project Path="Core.Tests/ButtonBox.Core.Tests.csproj" />
   <Project Path="Core/ButtonBox.Core.csproj" />
+  <Project Path="Discovery.Tests/ButtonBox.Discovery.Tests.csproj" />
+  <Project Path="Discovery/ButtonBox.Discovery.csproj" />
+  <Project Path="Security.Tests/ButtonBox.Security.Tests.csproj" />
+  <Project Path="Security/ButtonBox.Security.csproj" />
   <Project Path="Simulator.Tests/ButtonBox.Simulator.Tests.csproj" />
   <Project Path="Simulator/ButtonBox.Simulator.csproj" />
   <Project Path="Tools/SchemaGen/SchemaGen.csproj" />

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "iphone-14-pro",
+  "name": "iPhone 14 Pro",
+  "screen": {
+    "width": 852,
+    "height": 393,
+    "safeArea": { "top": 0, "right": 59, "bottom": 20, "left": 59 },
+    "pixelRatio": 3
+  },
+  "cutout": "dynamicIsland",
+  "generic": false
+}

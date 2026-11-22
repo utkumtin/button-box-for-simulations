@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using ButtonBox.Core;
+using ButtonBox.Security;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -10,12 +11,14 @@ namespace ButtonBox.App;
 internal sealed class EditorWindow : Form
 {
     private readonly Uri _baseAddress;
+    private readonly EditorSecret _secret;
     private readonly WebView2 _webView = new() { Dock = DockStyle.Fill };
     private bool _initStarted;
 
-    public EditorWindow(Uri baseAddress, Icon icon)
+    public EditorWindow(Uri baseAddress, Icon icon, EditorSecret secret)
     {
         _baseAddress = baseAddress;
+        _secret = secret;
         Text = ProductInfo.Name;
         Icon = icon;
         Size = new Size(1280, 800);
@@ -73,6 +76,13 @@ internal sealed class EditorWindow : Form
             }
         };
         core.NewWindowRequested += (_, e) => e.Handled = true;
+
+        // The session secret (decisions §9): a cookie set here, before the first navigation, so the first API call already carries it.
+        var cookie = core.CookieManager.CreateCookie(EditorApi.CookieName, _secret.Value, _baseAddress.Host, "/");
+        cookie.IsHttpOnly = true;
+        cookie.SameSite = CoreWebView2CookieSameSiteKind.Strict;
+        core.CookieManager.AddOrUpdateCookie(cookie);
+
         core.Navigate(new Uri(_baseAddress, "editor/").AbsoluteUri);
     }
 

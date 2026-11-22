@@ -10,6 +10,15 @@
       },
       "buttonbox.core": {
         "type": "Project"
+      },
+      "buttonbox.discovery": {
+        "type": "Project"
+      },
+      "buttonbox.security": {
+        "type": "Project",
+        "dependencies": {
+          "ButtonBox.Core": "[1.0.0, )"
+        }
       }
     }
   }

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>ButtonBox.Security</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- DPAPI (System.Security.Cryptography.ProtectedData) ships in this framework; no package (decisions §9). -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+    <ProjectReference Include="..\Core\ButtonBox.Core.csproj" />
+    <InternalsVisibleTo Include="ButtonBox.Security.Tests" />
+  </ItemGroup>
+</Project>

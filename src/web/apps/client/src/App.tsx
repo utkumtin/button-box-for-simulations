@@ -1,5 +1,107 @@
-import { Title } from '@bbs/widgets';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { clearDevice, loadDevice, saveDevice, type StoredDevice } from './lib/device';
+import { isStandalone } from './lib/mode';
+import { isPortrait } from './lib/screen';
+import { useConnection } from './lib/useConnection';
+import { Pairing } from './Pairing';
+
+function useViewport() {
+  const [size, setSize] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  useEffect(() => {
+    const update = () => setSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+    };
+  }, []);
+  return size;
+}
+
+function Message({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <main className="screen">
+      <h1>{title}</h1>
+      {children}
+    </main>
+  );
+}
+
+function Instructions() {
+  return (
+    <Message title="Add Button Box to your Home Screen">
+      <ol className="steps">
+        <li>Tap the Share button in Safari.</li>
+        <li>Choose Add to Home Screen.</li>
+        <li>Open Button Box from the Home Screen.</li>
+      </ol>
+    </Message>
+  );
+}
+
+function Session({
+  device,
+  onForget,
+  onReconnect,
+}: {
+  device: StoredDevice;
+  onForget: () => void;
+  onReconnect: () => void;
+}) {
+  const status = useConnection(device.token, onForget);
+  if (status === 'replaced') {
+    return (
+      <Message title="Connected in another window">
+        <button type="button" className="primary" onClick={onReconnect}>
+          Reconnect
+        </button>
+      </Message>
+    );
+  }
+  return (
+    <>
+      <Message title={status === 'connected' ? 'Connected' : 'Connecting…'}>
+        {status === 'connected' && <p>Connected. No layout yet.</p>}
+      </Message>
+      {status !== 'connected' && (
+        <div className="overlay" role="status">
+          {status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
+        </div>
+      )}
+    </>
+  );
+}
 
 export function App() {
-  return <Title text="Button Box" />;
+  const [standalone] = useState(isStandalone);
+  const [device, setDevice] = useState<StoredDevice | null>(loadDevice);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [session, setSession] = useState(0);
+  const { w, h } = useViewport();
+
+  const forget = useCallback(() => {
+    clearDevice();
+    setDevice(null);
+    setNotice('This device was removed on the PC. Pair it again.');
+  }, []);
+  const reconnect = useCallback(() => setSession((s) => s + 1), []);
+
+  if (!standalone) return <Instructions />;
+  if (isPortrait(w, h)) {
+    return <Message title="Rotate your phone to landscape to use the button box" />;
+  }
+  if (!device) {
+    return (
+      <Pairing
+        notice={notice}
+        onPaired={(d) => {
+          saveDevice(d);
+          setNotice(null);
+          setDevice(d);
+        }}
+      />
+    );
+  }
+  return <Session key={session} device={device} onForget={forget} onReconnect={reconnect} />;
 }

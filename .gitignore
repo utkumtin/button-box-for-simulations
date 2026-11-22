@@ -9,6 +9,8 @@ TestResults/
 node_modules/
 dist/
 src/web/packages/protocol/src/generated/
+.env
+.env.*
 
 # C++ / CMake
 src/plugins/scs/build/

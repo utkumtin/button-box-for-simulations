@@ -11,10 +11,13 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <ProjectReference Include="..\Core\ButtonBox.Core.csproj" />
+    <ProjectReference Include="..\Discovery\ButtonBox.Discovery.csproj" />
+    <ProjectReference Include="..\Security\ButtonBox.Security.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
     <LogoPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\assets\source\logo\logo.png'))</LogoPath>
+    <TemplatesDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\templates'))</TemplatesDir>
     <WebAppsDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\web\apps'))</WebAppsDir>
   </PropertyGroup>
 
@@ -28,5 +31,8 @@
     <EditorDist Include="$(WebAppsDir)\editor\dist\**" Condition="Exists('$(WebAppsDir)\editor\dist')" />
     <None Include="@(ClientDist)" Link="wwwroot\client\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="@(EditorDist)" Link="wwwroot\editor\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Device templates that ship with the app (decisions §6). -->
+    <ShippedTemplate Include="$(TemplatesDir)\*.json" />
+    <None Include="@(ShippedTemplate)" Link="templates\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

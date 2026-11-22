@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "template.schema.json",
+  "title": "DeviceTemplate",
+  "description": "Screen data of a device model. Shipped templates live in /templates; generic ones are built from what a phone reports when it pairs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "screen", "cutout", "generic"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "id": { "$ref": "common.schema.json#/definitions/id" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "screen": { "$ref": "common.schema.json#/definitions/screenInfo" },
+    "cutout": {
+      "title": "Cutout",
+      "type": "string",
+      "enum": ["none", "notch", "dynamicIsland", "unknown"]
+    },
+    "generic": { "type": "boolean" }
+  }
+}

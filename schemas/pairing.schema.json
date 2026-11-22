@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "pairing.schema.json",
+  "title": "Pairing",
+  "definitions": {
+    "pairRequest": {
+      "title": "PairRequest",
+      "description": "Sent by the phone (POST /api/pair) while the pairing wizard is open. Untrusted.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "screen"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[0-9]{6}$", "maxLength": 6 },
+        "screen": { "$ref": "common.schema.json#/definitions/screenInfo" }
+      }
+    },
+    "pairResponse": {
+      "title": "PairResponse",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deviceId", "token"],
+      "properties": {
+        "deviceId": { "$ref": "common.schema.json#/definitions/id" },
+        "token": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$", "maxLength": 43 }
+      }
+    }
+  }
+}
