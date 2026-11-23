@@ -32,6 +32,10 @@ body {
 .banner { padding: 0.6rem 1.25rem; font-weight: 600; }
 .banner-error { background: #5a1f1f; color: #ffd6d6; }
 .content { padding: 1.25rem; max-width: 52rem; margin: 0 auto; }
+.content-wide { max-width: none; }
+.sections { display: flex; gap: 0.25rem; padding: 0 1.25rem; border-bottom: 1px solid var(--border); }
+.section-tab { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); font: inherit; padding: 0.55rem 0.8rem; cursor: pointer; }
+.section-tab.is-current { color: inherit; border-bottom-color: var(--accent); }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .muted { color: var(--muted); }
 .warning { color: var(--warn); }

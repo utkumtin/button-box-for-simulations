@@ -8,7 +8,7 @@
   "properties": {
     "schemaVersion": { "type": "integer", "const": 1 },
     "id": { "$ref": "common.schema.json#/definitions/id" },
-    "name": { "type": "string", "maxLength": 64 },
+    "name": { "$ref": "common.schema.json#/definitions/profileName" },
     "game": { "$ref": "common.schema.json#/definitions/game" },
     "layouts": {
       "type": "array",

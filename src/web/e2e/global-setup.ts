@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,11 +9,17 @@ const repo = path.resolve(here, '../../..');
 const project = path.join(repo, 'src/host/Tools/E2EHost/E2EHost.csproj');
 const exe = path.join(repo, 'src/host/Tools/E2EHost/bin/Release/net10.0-windows/E2EHost.exe');
 const clientDist = path.join(repo, 'src/web/apps/client/dist');
+const editorDist = path.join(repo, 'src/web/apps/editor/dist');
 
-/** Builds and starts the test-only host; its single stdout line carries the ports, the control secret and the device tokens. */
+/** Builds and starts the test-only host; its single stdout line carries the ports, the control and editor secrets and the device tokens. */
 export default async function globalSetup(): Promise<() => Promise<void>> {
+  for (const [name, dir] of [['client', clientDist], ['editor', editorDist]] as const) {
+    if (!existsSync(path.join(dir, 'index.html'))) {
+      throw new Error(`The ${name} bundle is missing (${dir}). Build it first: pnpm --filter @bbs/${name} build.`);
+    }
+  }
   execFileSync('dotnet', ['build', project, '-c', 'Release', '--nologo', '-v', 'q'], { stdio: 'inherit' });
-  const child: ChildProcessWithoutNullStreams = spawn(exe, [clientDist], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const child: ChildProcessWithoutNullStreams = spawn(exe, [clientDist, editorDist], { stdio: ['pipe', 'pipe', 'pipe'] });
   const exited = new Promise<number | null>((resolve) => child.once('exit', resolve));
 
   const info = await new Promise<HostInfo>((resolve, reject) => {

@@ -48,6 +48,8 @@ public sealed class AppHostTests : IAsyncDisposable
         }
     }
 
+    private static string RealCatalogs => Path.Combine(AppContext.BaseDirectory, "catalog");
+
     private string DataDir => Path.Combine(_root, "data");
 
     private string SettingsPath => Path.Combine(DataDir, "settings.json");
@@ -60,6 +62,7 @@ public sealed class AppHostTests : IAsyncDisposable
         var shipped = Path.Combine(_root, "shipped");
         Directory.CreateDirectory(client);
         Directory.CreateDirectory(shipped);
+        File.WriteAllText(Path.Combine(shipped, "iphone-14-pro.json"), LanFixture.ShippedTemplateJson); // the first-run seed needs the template of its layout
         File.WriteAllText(Path.Combine(client, "index.html"), "x");
         var watcher = new NetworkWatcher(
             () => withLan ? [new LanAddress(1, LanFixture.FakeLan, 24)] : [],
@@ -69,6 +72,7 @@ public sealed class AppHostTests : IAsyncDisposable
         {
             DataDir = DataDir,
             ShippedTemplatesDir = shipped,
+            ShippedCatalogsDir = RealCatalogs,
             ClientDir = client,
             LogoPng = LanFixture.MakeLogo(),
             Network = watcher,
@@ -81,6 +85,52 @@ public sealed class AppHostTests : IAsyncDisposable
         });
         _hosts.Add(host);
         return host;
+    }
+
+    // ---- profiles ----
+
+    [Fact]
+    public void The_first_start_seeds_the_starter_profile_as_the_active_one_and_the_phones_run_it()
+    {
+        // The composition: the seed, the store and the session must agree, or a fresh install shows noLayout.
+        var host = Create();
+
+        Assert.Empty(host.FirstRunProblems);
+        var summary = Assert.Single(host.Profiles.List().Profiles);
+        Assert.Equal("ETS2 starter", summary.Name);
+        Assert.Equal(summary.Id, host.Profiles.ActiveId);
+        Assert.NotNull(host.Session.Engine?.ForTemplate("iphone-14-pro"));
+        Assert.Equal(3, host.Assets.List().Count);
+        Assert.True(host.Catalogs.TryGet(Game.Ets2, out _));
+    }
+
+    [Fact]
+    public void The_second_start_keeps_the_same_profile_and_does_not_seed_again()
+    {
+        var first = Create();
+        var id = first.Profiles.ActiveId;
+
+        var second = Create();
+
+        Assert.NotNull(id);
+        Assert.Equal(id, second.Profiles.ActiveId);
+        Assert.Single(second.Profiles.List().Profiles);
+        Assert.NotNull(second.Session.Engine);
+    }
+
+    [Fact]
+    public void A_damaged_active_profile_file_gives_the_phones_noLayout_and_the_app_still_starts()
+    {
+        var id = Create().Profiles.ActiveId!;
+        var path = Path.Combine(DataDir, "profiles", id + ".json");
+        File.WriteAllText(path, "{ damaged");
+
+        var host = Create();
+
+        Assert.Equal(SetupProblem.None, host.Setup);
+        Assert.Null(host.Session.Engine);
+        Assert.Null(host.Profiles.ActiveId);
+        Assert.Equal("{ damaged", File.ReadAllText(path));
     }
 
     // ---- settings ----
@@ -267,6 +317,7 @@ public sealed class AppHostTests : IAsyncDisposable
         {
             DataDir = DataDir,
             ShippedTemplatesDir = Path.Combine(_root, "shipped"),
+            ShippedCatalogsDir = RealCatalogs,
             ClientDir = client,
             LogoPng = LanFixture.MakeLogo(),
             Network = watcher,

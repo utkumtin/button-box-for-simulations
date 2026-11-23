@@ -42,12 +42,12 @@
         "columns": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 64
+          "maximum": 24
         },
         "rows": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 64
+          "maximum": 16
         }
       }
     },
@@ -97,8 +97,7 @@
           "$ref": "common.schema.json#/definitions/gridCell"
         },
         "label": {
-          "type": "string",
-          "maxLength": 32
+          "$ref": "common.schema.json#/definitions/label"
         },
         "longPressGuard": {
           "type": "boolean"
@@ -204,8 +203,7 @@
       ],
       "properties": {
         "label": {
-          "type": "string",
-          "maxLength": 32
+          "$ref": "common.schema.json#/definitions/label"
         },
         "angle": {
           "type": "number",

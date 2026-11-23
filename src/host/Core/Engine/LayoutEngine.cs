@@ -31,6 +31,43 @@ public sealed class LayoutEngine
 
     public Layout Layout => _layout;
 
+    internal void ResetPositions()
+    {
+        lock (_gate)
+        {
+            foreach (var id in _positions.Keys.ToList())
+            {
+                _positions[id] = 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Takes over the commanded positions of <paramref name="previous"/> (the layout this one replaces): a switch keeps its
+    /// position when its widget id exists in both and the number of positions is the same; every other switch starts at 0.
+    /// Call before this engine is published.
+    /// </summary>
+    internal void CarryPositionsFrom(LayoutEngine previous)
+    {
+        Dictionary<string, (int Count, int Position)> old = new();
+        lock (previous._gate)
+        {
+            foreach (var (id, position) in previous._positions)
+            {
+                old[id] = (((SwitchWidget)previous._widgets[id]).Positions.Count, position);
+            }
+        }
+
+        lock (_gate)
+        {
+            foreach (var id in _positions.Keys.ToList())
+            {
+                var count = ((SwitchWidget)_widgets[id]).Positions.Count;
+                _positions[id] = old.TryGetValue(id, out var was) && was.Count == count ? was.Position : 0;
+            }
+        }
+    }
+
     /// <summary>Validates a client message, maps it to outputs and updates commanded switch positions.</summary>
     public HandleResult Handle(ClientMessage message, TelemetrySnapshot snapshot)
     {

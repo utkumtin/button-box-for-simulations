@@ -1,13 +1,15 @@
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using ButtonBox.Core.Contracts;
 
 namespace ButtonBox.App.Lan;
 
 /// <summary>
 /// Images by the SHA-256 of their bytes (decisions §7). The id is computed here, never taken from a name or a config, so an
-/// id on the wire can only ever select bytes the host itself holds. Immutable after construction.
+/// id on the wire can only ever select bytes the host itself holds. Immutable after construction. Holds the bundled PNG demo
+/// images and serves LAN tests; the app serves the user's <see cref="Profiles.AssetLibrary"/>.
 /// </summary>
-public sealed class AssetStore
+public sealed class AssetStore : IAssetSource
 {
     /// <summary>64 lowercase hex characters. Anchored with \A..\z: in .NET "$" also matches before a trailing newline.</summary>
     public const string IdPattern = @"\A[0-9a-f]{64}\z";
@@ -40,5 +42,11 @@ public sealed class AssetStore
 
         bytes = [];
         return false;
+    }
+
+    bool IAssetSource.TryGet(string? id, out AssetType type, out byte[] bytes)
+    {
+        type = AssetType.Png; // the bundled images are PNG files
+        return TryGet(id, out bytes);
     }
 }

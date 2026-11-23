@@ -4,11 +4,13 @@ using System.Threading.Channels;
 namespace ButtonBox.App.Lan;
 
 /// <summary>
-/// The one writer of data frames on a phone socket. Frames go out from fixed-order slots: the header (welcome, then layout or
-/// noLayout), then the latest status, then the latest state. Status and state are flags, not queues: the frame is built when
-/// its turn comes, from the then-current snapshot, so a slow phone gets the newest value and never a backlog. The slots are only
+/// The one writer of data frames on a phone socket. Frames go out from fixed-order slots: the header (welcome), then the layout
+/// (or noLayout), then the latest status, then the latest state. Layout, status and state are flags, not queues: the frame is built
+/// when its turn comes, from the then-current snapshot, so a slow phone gets the newest value and never a backlog. The slots are only
 /// flushed after <see cref="Start"/> has loaded the header, so an early telemetry change can never jump ahead of welcome or layout.
-/// The marking methods never block and never touch the socket; they are safe on any thread.
+/// A builder may answer null ("nothing to send now"): the slot is then skipped. Builders run on the sender's one pump, in slot
+/// order, so a builder can rely on what the earlier slots built. The marking methods never block and never touch the socket; they
+/// are safe on any thread.
 /// </summary>
 internal sealed class FrameSender : IAsyncDisposable
 {
@@ -31,8 +33,10 @@ internal sealed class FrameSender : IAsyncDisposable
     private readonly Task _pump;
     private IReadOnlyList<byte[]>? _header;
     private int _headerNext;
-    private Func<byte[]>? _buildStatus;
-    private Func<byte[]>? _buildState;
+    private Func<byte[]?>? _buildLayout;
+    private Func<byte[]?>? _buildStatus;
+    private Func<byte[]?>? _buildState;
+    private bool _layoutDirty;
     private bool _statusDirty;
     private bool _stateDirty;
     private bool _stopped;
@@ -51,10 +55,10 @@ internal sealed class FrameSender : IAsyncDisposable
     }
 
     /// <summary>
-    /// Loads the header and releases the slots. Status is marked, and state too when <paramref name="buildState"/> is given,
-    /// so the phone's first frames after the header are always a fresh snapshot.
+    /// Loads the header and releases the slots. Every slot that has a builder is marked, so the phone's first frames after the
+    /// header are always layout, status and state from a fresh snapshot (marks made before this call are covered too).
     /// </summary>
-    public void Start(IReadOnlyList<byte[]> header, Func<byte[]>? buildStatus, Func<byte[]>? buildState)
+    public void Start(IReadOnlyList<byte[]> header, Func<byte[]?>? buildLayout, Func<byte[]?>? buildStatus, Func<byte[]?>? buildState)
     {
         lock (_gate)
         {
@@ -64,10 +68,28 @@ internal sealed class FrameSender : IAsyncDisposable
             }
 
             _header = header;
+            _buildLayout = buildLayout;
             _buildStatus = buildStatus;
             _buildState = buildState;
+            _layoutDirty = buildLayout is not null;
             _statusDirty = buildStatus is not null;
             _stateDirty = buildState is not null;
+        }
+
+        Wake();
+    }
+
+    /// <summary>
+    /// A new layout (or noLayout) must reach the phone. Status and state are marked with it, so they always follow the layout and
+    /// never describe widgets the phone does not have.
+    /// </summary>
+    public void MarkLayout()
+    {
+        lock (_gate)
+        {
+            _layoutDirty = true;
+            _statusDirty = true;
+            _stateDirty = true;
         }
 
         Wake();
@@ -117,7 +139,7 @@ internal sealed class FrameSender : IAsyncDisposable
     private void Wake() => _wake.Writer.TryWrite(true);
 
     // Under the lock only flags change; the frame itself is built outside it.
-    private Func<byte[]>? NextFrame()
+    private Func<byte[]?>? NextFrame()
     {
         lock (_gate)
         {
@@ -132,16 +154,31 @@ internal sealed class FrameSender : IAsyncDisposable
                 return () => frame;
             }
 
+            if (_layoutDirty)
+            {
+                _layoutDirty = false;
+                if (_buildLayout is not null)
+                {
+                    return _buildLayout;
+                }
+            }
+
             if (_statusDirty)
             {
                 _statusDirty = false;
-                return _buildStatus;
+                if (_buildStatus is not null)
+                {
+                    return _buildStatus;
+                }
             }
 
             if (_stateDirty)
             {
                 _stateDirty = false;
-                return _buildState;
+                if (_buildState is not null)
+                {
+                    return _buildState;
+                }
             }
 
             return null;
@@ -158,7 +195,7 @@ internal sealed class FrameSender : IAsyncDisposable
                 _wake.Reader.TryRead(out _);
                 while (NextFrame() is { } build)
                 {
-                    byte[] frame;
+                    byte[]? frame;
                     try
                     {
                         frame = build();
@@ -167,6 +204,11 @@ internal sealed class FrameSender : IAsyncDisposable
                     {
                         _onFault(); // a host bug, not a phone problem: the connection is closed with 1011
                         return;
+                    }
+
+                    if (frame is null)
+                    {
+                        continue;
                     }
 
                     if (!await SendAsync(frame, token))

@@ -1,0 +1,21 @@
+.topbar-status { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.topbar-profile { display: flex; align-items: center; gap: 0.5rem; }
+.topbar-item { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: var(--muted); }
+.topbar-item .dot { margin-top: 0; }
+
+.assets-upload { position: relative; display: inline-block; }
+.assets-file { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.assets-list { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.6rem; }
+.assets-row { display: flex; align-items: center; gap: 0.9rem; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 1rem; }
+.assets-thumb { width: 4rem; height: 4rem; object-fit: contain; background: #151515; border-radius: 6px; flex: none; }
+.assets-info { flex: 1; min-width: 0; }
+
+.telemetry-dot { display: inline-block; margin-right: 0.4rem; }
+.telemetry-filter { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.8rem; }
+.telemetry-table { border-collapse: collapse; width: 100%; font-family: ui-monospace, Consolas, monospace; }
+.telemetry-table th, .telemetry-table td { text-align: left; padding: 0.25rem 0.6rem; border-bottom: 1px solid var(--border); }
+.telemetry-table .telemetry-value { text-align: right; width: 8rem; }
+
+.settings-panel { background: var(--bg-raised); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; margin-bottom: 0.8rem; }
+.settings-panel h3 { margin: 0 0 0.4rem; }
+.settings-confirm { display: grid; gap: 0.3rem; margin: 1rem 0; }

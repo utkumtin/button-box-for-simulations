@@ -1,4 +1,5 @@
 using System.Reflection;
+using ButtonBox.App.Lan;
 using ButtonBox.Core;
 using ButtonBox.Discovery;
 
@@ -24,6 +25,7 @@ internal static class Program
         {
             DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ProductInfo.Name),
             ShippedTemplatesDir = Path.Combine(AppContext.BaseDirectory, "templates"),
+            ShippedCatalogsDir = Path.Combine(AppContext.BaseDirectory, "catalog"),
             ClientDir = Path.Combine(root, "client"),
             LogoPng = ReadLogo(),
             Network = network,
@@ -36,6 +38,14 @@ internal static class Program
             Pairing = () => host.Lan?.Pairing,
             IsConnected = id => host.Lan?.Connections.IsConnected(id) ?? false,
             Status = () => host.Status,
+            Profiles = host.Profiles,
+            Catalogs = host.Catalogs,
+            Assets = host.Assets,
+            Session = host.Session,
+            Telemetry = host.Simulator,
+            CaFingerprint = () => host.Lan?.CaFingerprint,
+            Firewall = new FirewallStatus(),
+            RegenerateCa = () => host.Lan is { } lan ? lan.RegenerateCertificateAuthorityAsync() : Task.FromResult(CaRegenerationResult.Unavailable),
         }).GetAwaiter().GetResult();
         Application.Run(new TrayApplicationContext(instance, host, server, network));
     }

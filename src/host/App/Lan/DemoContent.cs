@@ -1,13 +1,17 @@
 using System.Reflection;
 using System.Text.Json;
+using ButtonBox.App.Profiles;
 using ButtonBox.Core.Contracts;
 using ButtonBox.Core.Engine;
 
 namespace ButtonBox.App.Lan;
 
+/// <summary>The Phase 3 demo as the source of the first-run seed (decisions §6): the profile and its three PNG images.</summary>
+public sealed record DemoSeed(Profile Profile, IReadOnlyList<byte[]> Images);
+
 /// <summary>
-/// The Phase 3 demo (decisions §3, §7): a bundled, read-only profile, its ETS2 catalog and its images, embedded in the
-/// exe. A damaged bundled file is a bug, so loading throws; the app never runs with an empty profile.
+/// The Phase 3 demo (decisions §3, §7): a profile and its images, embedded in the exe, and the ETS2 catalog from the shipped
+/// <c>catalog</c> folder. A damaged bundled file is a bug, so loading throws; the app never runs with an empty profile.
 /// </summary>
 public sealed class DemoContent
 {
@@ -29,15 +33,30 @@ public sealed class DemoContent
 
     public AssetStore Assets { get; }
 
+    /// <summary>The demo with the catalog next to the executable (<c>catalog\ets2.json</c>), as the tests and the E2E host run it.</summary>
+    /// <exception cref="InvalidOperationException">A bundled file or the shipped catalog is missing or not usable.</exception>
+    public static DemoContent Load() => Load(Path.Combine(AppContext.BaseDirectory, "catalog"));
+
+    /// <exception cref="InvalidOperationException">A bundled file or the shipped catalog is missing or not usable.</exception>
+    public static DemoContent Load(string shippedCatalogsDir)
+    {
+        var seed = ReadSeed();
+        var catalogs = new CatalogStore(shippedCatalogsDir);
+        if (!catalogs.TryGet(Game.Ets2, out var catalog))
+        {
+            throw new InvalidOperationException("The shipped ETS2 catalog is missing or not usable.");
+        }
+
+        var engine = new ProfileEngine(seed.Profile, catalog); // throws InvalidOperationException when the pair does not check out
+        return new DemoContent(seed.Profile, catalog, engine, new AssetStore(seed.Images));
+    }
+
     /// <exception cref="InvalidOperationException">A bundled file is missing or not usable.</exception>
-    public static DemoContent Load()
+    public static DemoSeed ReadSeed()
     {
         var assembly = typeof(DemoContent).Assembly;
         var profile = ReadJson<Profile>(assembly, "demo/demo.profile.json");
-        var catalog = ReadJson<Catalog>(assembly, "demo/ets2-demo.catalog.json");
-        var engine = new ProfileEngine(profile, catalog); // throws InvalidOperationException when the pair does not check out
-        var assets = new AssetStore(ImageResources.Select(name => ReadBytes(assembly, name)));
-        return new DemoContent(profile, catalog, engine, assets);
+        return new DemoSeed(profile, [.. ImageResources.Select(name => ReadBytes(assembly, name))]);
     }
 
     private static byte[] ReadBytes(Assembly assembly, string name)

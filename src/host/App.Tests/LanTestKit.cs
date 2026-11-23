@@ -183,7 +183,7 @@ internal sealed class LanRig : IAsyncDisposable
 
     public string DefaultOrigin => $"https://{LanFixture.Label}.local:{HttpsPort}";
 
-    public static async Task<LanRig> StartAsync(LanFixture fixture, DeviceConnectionsOptions? connectionOptions = null, byte[]? icon = null, GameSession? session = null, AssetStore? assets = null)
+    public static async Task<LanRig> StartAsync(LanFixture fixture, DeviceConnectionsOptions? connectionOptions = null, byte[]? icon = null, GameSession? session = null, IAssetSource? assets = null)
     {
         var certificate = fixture.Ca.IssueServerCertificate(LanFixture.Label + ".local", [LanFixture.FakeLan]);
         var connections = new DeviceConnections(fixture.Registry, connectionOptions ?? new DeviceConnectionsOptions { Time = fixture.Time }, session);

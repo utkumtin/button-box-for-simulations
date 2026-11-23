@@ -1,6 +1,8 @@
 using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 using ButtonBox.App.Lan;
+using ButtonBox.App.Profiles;
 using ButtonBox.Core.Contracts;
 using Xunit;
 
@@ -142,6 +144,34 @@ public sealed class AssetRouteTests : IAsyncDisposable
         using var _ = client;
 
         Assert.Equal("CLIENT-MARKER", await client.GetStringAsync("/", Ct));
+    }
+
+    [Fact]
+    public async Task The_library_is_served_with_the_content_type_of_the_image_and_a_file_that_does_not_check_out_is_a_404()
+    {
+        // The route serves the user's library (decisions §7): PNG and WebP by their header, and a renamed or mismatching file never.
+        var dir = Path.Combine(_fx.Root, "library");
+        Directory.CreateDirectory(dir);
+        var fake = Encoding.UTF8.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");
+        var fakeId = Convert.ToHexStringLower(SHA256.HashData(fake));
+        File.WriteAllBytes(Path.Combine(dir, fakeId + ".png"), fake); // right hash, not an image
+        var library = new AssetLibrary(dir);
+        var png = library.Import(_demo.Assets.TryGet(_demo.Assets.Ids.First(), out var demoPng) ? demoPng : []).Asset!;
+        var webp = library.Import(AssetLibraryTests.Webp()).Asset!;
+        _rig = await LanRig.StartAsync(_fx, assets: library);
+        using var client = _rig.CreateClient();
+
+        using var pngResponse = await client.GetAsync(Raw(_rig, "/assets/" + png.Id), Ct);
+        using var webpResponse = await client.GetAsync(Raw(_rig, "/assets/" + webp.Id), Ct);
+        using var fakeResponse = await client.GetAsync(Raw(_rig, "/assets/" + fakeId), Ct);
+        using var unknown = await client.GetAsync(Raw(_rig, "/assets/" + new string('0', 64)), Ct);
+
+        Assert.Equal("image/png", pngResponse.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("image/webp", webpResponse.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("public, max-age=31536000, immutable", string.Join(", ", webpResponse.Headers.GetValues("Cache-Control")));
+        Assert.Equal(Convert.FromHexString(webp.Id), SHA256.HashData(await webpResponse.Content.ReadAsByteArrayAsync(Ct)));
+        Assert.Equal(HttpStatusCode.NotFound, fakeResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
     }
 
     [Fact]

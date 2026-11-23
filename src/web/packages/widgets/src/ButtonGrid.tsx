@@ -49,10 +49,13 @@ export function ButtonGrid({ layout, states, dim, enabled, onGesture, assetUrl }
       }),
   );
 
-  useEffect(() => {
+  // Layout effects, not passive ones: they run before the browser paints the new grid, so a touch that starts on the new grid is
+  // never judged against (and then cancelled by) the old layout. A passive effect runs after paint and swallowed a tap that came
+  // right after a layout update (seen in the Phase 4 e2e run).
+  useLayoutEffect(() => {
     engine.setLayout(layout);
   }, [engine, layout]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     engine.setEnabled(enabled);
   }, [engine, enabled]);
   useEffect(() => () => engine.cancelAll(), [engine]);

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using ButtonBox.App.Pairing;
 using ButtonBox.Core.Contracts;
@@ -48,6 +49,12 @@ public sealed class LanHostOptions
     /// <summary>Test seam: certificate issuing (default: the CA). Lets a test observe the order of renewal steps.</summary>
     public Func<CertificateAuthority, string, IReadOnlyList<IPAddress>, X509Certificate2>? IssueCertificate { get; init; }
 
+    /// <summary>
+    /// Test seam: awaited just before each step of <see cref="LanHost.RegenerateCertificateAuthorityAsync"/>. A test blocks it to hold the
+    /// regeneration at a seam, or throws from it to make that step fail.
+    /// </summary>
+    public Func<CaRegenerationStep, Task>? RegenerationStep { get; init; }
+
     /// <summary>Test seam for the WebSocket limits (hello timeout, keepalive, ...).</summary>
     public DeviceConnectionsOptions? ConnectionOptions { get; init; }
 
@@ -55,7 +62,35 @@ public sealed class LanHostOptions
     public GameSession? Session { get; init; }
 
     /// <summary>The images served at <c>/assets/{sha256}</c>. Null: none.</summary>
-    public AssetStore? Assets { get; init; }
+    public IAssetSource? Assets { get; init; }
+}
+
+/// <summary>The steps of the CA regeneration that can be held or failed in a test (see <see cref="LanHost.RegenerateCertificateAuthorityAsync"/>).</summary>
+public enum CaRegenerationStep
+{
+    /// <summary>Before the new CA is created in its sibling folder. Nothing has changed yet and the server still runs.</summary>
+    CreatingNew,
+
+    /// <summary>The server is stopped. Before <c>ca</c> is moved to <c>ca.old-…</c>.</summary>
+    MovingOldAside,
+
+    /// <summary>Half swapped: <c>ca</c> does not exist. Before <c>ca.new-…</c> is moved to <c>ca</c>.</summary>
+    MovingNewIn,
+
+    /// <summary>Fully swapped, devices not yet revoked, server still stopped.</summary>
+    RevokingDevices,
+}
+
+public enum CaRegenerationResult
+{
+    /// <summary>The new CA is in place, every device is revoked, the server restarts from the new CA.</summary>
+    Done,
+
+    /// <summary>The LAN side has no CA or is not started (or is shutting down, or already regenerating). Nothing changed.</summary>
+    Unavailable,
+
+    /// <summary>A step failed and was rolled back: the old CA, the device list and the server are as before.</summary>
+    Failed,
 }
 
 public enum LanHostProblem
@@ -76,6 +111,9 @@ public enum LanHostProblem
 /// </summary>
 public sealed class LanHost : IAsyncDisposable
 {
+    private const string OldMarker = ".old-";
+    private const string NewMarker = ".new-";
+
     private readonly LanHostOptions _o;
     private readonly SemaphoreSlim _reconcile = new(1, 1);
     private readonly object _gate = new();
@@ -95,6 +133,7 @@ public sealed class LanHost : IAsyncDisposable
     private IReadOnlyList<LanAddress> _addresses = [];
     private bool _started;
     private bool _disposed;
+    private bool _regenerating;
 
     public LanHost(LanHostOptions options)
     {
@@ -110,14 +149,29 @@ public sealed class LanHost : IAsyncDisposable
 
     public DeviceConnections Connections { get; }
 
-    /// <summary>The pairing session; null until <see cref="StartAsync"/> loaded the CA (and for good when that failed).</summary>
+    /// <summary>
+    /// The pairing session; null until <see cref="StartAsync"/> loaded the CA (and for good when that failed), and null while the CA is
+    /// being regenerated, so that no pairing page can open on the old CA in the middle of it.
+    /// </summary>
     public PairingSession? Pairing
     {
         get
         {
             lock (_gate)
             {
-                return _pairing;
+                return _regenerating ? null : _pairing;
+            }
+        }
+    }
+
+    /// <summary>SHA-256 of the CA certificate, 64 upper-case hex digits; null when there is no CA (not started, damaged, or unavailable).</summary>
+    public string? CaFingerprint
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _authority?.Sha256Fingerprint;
             }
         }
     }
@@ -186,19 +240,26 @@ public sealed class LanHost : IAsyncDisposable
 
         try
         {
-            var authority = CertificateAuthority.LoadOrCreate(_o.CaDirectory, _o.ServerKeyName);
-            var pairing = new PairingSession(new PairingSessionOptions
+            // A crash in the middle of a regeneration is settled first, and a new CA is never created next to a ca.old-… folder.
+            var pendingOld = RecoverInterruptedRegeneration(out var mustExist);
+            var authority = mustExist ? LoadExisting(_o.CaDirectory) : CertificateAuthority.LoadOrCreate(_o.CaDirectory, _o.ServerKeyName);
+            if (pendingOld is not null)
             {
-                Authority = authority,
-                Registry = _o.Registry,
-                Templates = _o.Templates,
-                MdnsLabel = _o.MdnsLabel,
-                BindAddresses = () => [.. _o.Network.Current.Select(_bind).Distinct()],
-                HttpsPort = _o.HttpsPort,
-                PrimaryPort = _o.PairingPort,
-                FallbackPort = _o.PairingFallbackPort,
-                Time = _o.Time,
-            });
+                // The swap had completed: the phones paired with the old CA are gone (idempotent), then the old CA can go.
+                try
+                {
+                    _o.Registry.RevokeAll();
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    authority.Dispose();
+                    throw new CertificateAuthorityUnavailableException("The devices could not be revoked after an interrupted regeneration.", e);
+                }
+
+                TryDeleteDirectory(pendingOld);
+            }
+
+            var pairing = CreatePairing(authority);
             lock (_gate)
             {
                 _authority = authority;
@@ -277,6 +338,332 @@ public sealed class LanHost : IAsyncDisposable
         finally
         {
             _reconcile.Release();
+        }
+    }
+
+    /// <summary>
+    /// Replaces the certificate authority with a new one; every phone must install the new profile and pair again. All or nothing until
+    /// the commit point (the devices are revoked): a failure before it leaves the old CA files, the device list and the server as they were.
+    /// Order: (1) refuse when there is no CA; cancel pairing and hold <c>_reconcile</c> for the whole operation, so no retry tick or network
+    /// change can restart the server or sign in between; (2) create the new CA in <c>ca.new-…</c> and read it back while the server still
+    /// runs; (3) stop the server and its certificate, move <c>ca</c> to <c>ca.old-…</c> and <c>ca.new-…</c> to <c>ca</c>; (4) revoke every
+    /// device in one write; (5) commit: load the CA from <c>ca</c>, a new pairing session, delete <c>ca.old-…</c>, release the lock and
+    /// reconcile, which issues the server certificate from the new CA. A crash between the steps is settled by <see cref="StartAsync"/>.
+    /// </summary>
+    public async Task<CaRegenerationResult> RegenerateCertificateAuthorityAsync()
+    {
+        lock (_gate)
+        {
+            if (_disposed || !_started || _authority is null || _regenerating)
+            {
+                return CaRegenerationResult.Unavailable;
+            }
+
+            _regenerating = true; // the pairing routes now answer "unavailable"
+        }
+
+        CaRegenerationResult result;
+        try
+        {
+            var pairing = _pairing;
+            if (pairing is not null)
+            {
+                try
+                {
+                    await pairing.CancelAsync();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Shutting down: the check below sees it.
+                }
+            }
+
+            await _reconcile.WaitAsync();
+            try
+            {
+                result = _disposed || _authority is null ? CaRegenerationResult.Unavailable : await RegenerateLockedAsync();
+            }
+            finally
+            {
+                _reconcile.Release();
+            }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _regenerating = false;
+            }
+        }
+
+        if (result != CaRegenerationResult.Unavailable)
+        {
+            await ReconcileQuietlyAsync(); // success: issue from the new CA and start; failure: start again from the old CA
+        }
+
+        return result;
+    }
+
+    // Runs with _reconcile held.
+    private async Task<CaRegenerationResult> RegenerateLockedAsync()
+    {
+        var caDir = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_o.CaDirectory));
+        var parent = Path.GetDirectoryName(caDir)!;
+        var name = Path.GetFileName(caDir);
+        var suffix = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(8));
+        var newDir = Path.Combine(parent, name + NewMarker + suffix);
+        var oldDir = Path.Combine(parent, name + OldMarker + suffix);
+
+        // Step 2: the server keeps running. The temporary object only creates the files and is disposed at once; a second load proves the
+        // key file can be decrypted and belongs to the certificate. Nothing ever signs with it.
+        try
+        {
+            await StepAsync(CaRegenerationStep.CreatingNew);
+            using (CertificateAuthority.LoadOrCreate(newDir, _o.ServerKeyName))
+            {
+            }
+
+            using (LoadExisting(newDir))
+            {
+            }
+        }
+        catch (Exception)
+        {
+            TryDeleteDirectory(newDir);
+            return CaRegenerationResult.Failed;
+        }
+
+        // Step 3 onwards: the server is down until the commit or the rollback is complete.
+        await StopServerAsync();
+        lock (_gate)
+        {
+            _state = LanServerState.Starting;
+        }
+
+        RaiseStatusChanged();
+
+        var movedAside = false;
+        var movedIn = false;
+        try
+        {
+            await StepAsync(CaRegenerationStep.MovingOldAside);
+            Directory.Move(caDir, oldDir);
+            movedAside = true;
+            await StepAsync(CaRegenerationStep.MovingNewIn);
+            Directory.Move(newDir, caDir);
+            movedIn = true;
+            using (LoadExisting(caDir))
+            {
+            }
+
+            // Step 4: one write. When it fails nothing changed, so the folders are simply swapped back.
+            await StepAsync(CaRegenerationStep.RevokingDevices);
+            _o.Registry.RevokeAll();
+        }
+        catch (Exception)
+        {
+            await RollBackAsync(caDir, oldDir, newDir, movedAside, movedIn);
+            return CaRegenerationResult.Failed;
+        }
+
+        // Step 5, the commit: the devices are gone, so there is no way back. What goes wrong now is a LAN status problem.
+        CertificateAuthority? loaded = null;
+        try
+        {
+            loaded = LoadExisting(caDir);
+            await InstallAuthorityAsync(loaded);
+        }
+        catch (Exception)
+        {
+            loaded?.Dispose();
+            await FailClosedAsync();
+            return CaRegenerationResult.Done;
+        }
+
+        TryDeleteDirectory(oldDir);
+        return CaRegenerationResult.Done;
+    }
+
+    private async Task RollBackAsync(string caDir, string oldDir, string newDir, bool movedAside, bool movedIn)
+    {
+        try
+        {
+            if (movedIn)
+            {
+                Directory.Move(caDir, newDir);
+            }
+
+            if (movedAside)
+            {
+                Directory.Move(oldDir, caDir);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            await FailClosedAsync(); // the folders could not be put back: the startup recovery settles it, nothing is signed meanwhile
+            return;
+        }
+
+        TryDeleteDirectory(newDir);
+
+        // The old files are back. Load them afresh (the old object's key path pointed at the new key for a while) and use that object.
+        var oldFingerprint = CaFingerprint;
+        CertificateAuthority? reloaded = null;
+        try
+        {
+            reloaded = LoadExisting(caDir);
+            if (!string.Equals(reloaded.Sha256Fingerprint, oldFingerprint, StringComparison.Ordinal))
+            {
+                throw new CertificateAuthorityUnavailableException("The restored CA is not the old one.");
+            }
+
+            await InstallAuthorityAsync(reloaded);
+        }
+        catch (Exception)
+        {
+            reloaded?.Dispose();
+            await FailClosedAsync();
+        }
+    }
+
+    // The CA cannot be used and nothing is created in its place: the status says so, and a restart runs the recovery.
+    private async Task FailClosedAsync()
+    {
+        PairingSession? pairing;
+        CertificateAuthority? authority;
+        lock (_gate)
+        {
+            pairing = _pairing;
+            authority = _authority;
+            _pairing = null;
+            _authority = null;
+            _problem = LanHostProblem.CertificateAuthorityUnavailable;
+            _addresses = _o.Network.Current;
+        }
+
+        RaiseStatusChanged();
+        if (pairing is not null)
+        {
+            await pairing.DisposeAsync();
+        }
+
+        authority?.Dispose();
+    }
+
+    private async Task InstallAuthorityAsync(CertificateAuthority authority)
+    {
+        var pairing = CreatePairing(authority);
+        PairingSession? oldPairing;
+        CertificateAuthority? oldAuthority;
+        lock (_gate)
+        {
+            oldPairing = _pairing;
+            oldAuthority = _authority;
+            _pairing = pairing;
+            _authority = authority;
+            _problem = LanHostProblem.None;
+        }
+
+        if (oldPairing is not null)
+        {
+            await oldPairing.DisposeAsync();
+        }
+
+        oldAuthority?.Dispose();
+    }
+
+    private PairingSession CreatePairing(CertificateAuthority authority) => new(new PairingSessionOptions
+    {
+        Authority = authority,
+        Registry = _o.Registry,
+        Templates = _o.Templates,
+        MdnsLabel = _o.MdnsLabel,
+        BindAddresses = () => [.. _o.Network.Current.Select(_bind).Distinct()],
+        HttpsPort = _o.HttpsPort,
+        PrimaryPort = _o.PairingPort,
+        FallbackPort = _o.PairingFallbackPort,
+        Time = _o.Time,
+    });
+
+    private Task StepAsync(CaRegenerationStep step) => _o.RegenerationStep is { } hook ? hook(step) : Task.CompletedTask;
+
+    // Loads an existing CA and never creates one: LoadOrCreate would make a new CA out of an empty folder.
+    private CertificateAuthority LoadExisting(string directory)
+    {
+        if (!File.Exists(Path.Combine(directory, "ca.cer")) || !File.Exists(Path.Combine(directory, "ca.key")))
+        {
+            throw new CertificateAuthorityUnavailableException("The CA files are missing.");
+        }
+
+        return CertificateAuthority.LoadOrCreate(directory, _o.ServerKeyName);
+    }
+
+    /// <summary>
+    /// Settles what a crash in the middle of a regeneration left behind, before the CA is loaded. Returns the <c>ca.old-…</c> folder to
+    /// delete once the CA loaded (the swap had completed), or null. <paramref name="mustExist"/> is true when a ca.old-… exists: the CA
+    /// must then be loaded, never created. Leftover <c>ca.new-…</c> folders are ignored (nothing ever signs with them).
+    /// </summary>
+    private string? RecoverInterruptedRegeneration(out bool mustExist)
+    {
+        mustExist = false;
+        var caDir = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_o.CaDirectory));
+        var parent = Path.GetDirectoryName(caDir)!;
+        if (!Directory.Exists(parent))
+        {
+            return null;
+        }
+
+        string[] olds;
+        try
+        {
+            var prefix = Path.GetFileName(caDir) + OldMarker;
+            olds = [.. Directory.EnumerateDirectories(parent).Where(d => Path.GetFileName(d).StartsWith(prefix, StringComparison.Ordinal))];
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new CertificateAuthorityUnavailableException("The CA folder cannot be inspected.", e);
+        }
+
+        if (olds.Length == 0)
+        {
+            return null;
+        }
+
+        mustExist = true;
+        if (olds.Length > 1)
+        {
+            throw new CertificateAuthorityUnavailableException("More than one interrupted regeneration was found; nothing was touched.");
+        }
+
+        if (Directory.Exists(caDir))
+        {
+            return olds[0];
+        }
+
+        try
+        {
+            Directory.Move(olds[0], caDir); // the swap had not completed: the old CA comes back and nothing changed
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new CertificateAuthorityUnavailableException("The old CA could not be restored.", e);
+        }
+
+        return null;
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Left behind: it is never used again, and the startup recovery deletes a ca.old-… folder.
         }
     }
 

@@ -26,6 +26,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open editor", null, (_, _) => OpenEditor());
+        menu.Items.Add(new ProfileMenu(host.Profiles, text => _notifyIcon!.ShowBalloonTip(10_000, ProductInfo.Name, text, ToolTipIcon.Warning)).Item);
         menu.Items.Add(new SimulatorMenu(host.Simulator).Item);
         menu.Items.Add("Quit", null, async (_, _) => await QuitAsync());
 

@@ -167,4 +167,62 @@ public sealed class DeviceRegistryTests : IDisposable
         Assert.Throws<ArgumentException>(() => registry.Add("ok", "Bad Id", false));
         Assert.Empty(registry.Devices);
     }
+
+    // Why: regenerating the CA un-pairs every phone at once. One write means a crash can never leave "half the phones revoked",
+    // and the listeners (which close live sockets with 4401) must only hear about it after the file is final.
+    [Fact]
+    public void RevokeAll_empties_the_registry_in_one_write_and_then_raises_Revoked_for_every_device()
+    {
+        var registry = DeviceRegistry.Load(PathOf);
+        var (first, firstToken) = registry.Add("One", "generic", false);
+        var (second, secondToken) = registry.Add("Two", "generic", false);
+        var raised = new List<string>();
+        var fileEmptyAtFirstEvent = new List<bool>();
+        registry.Revoked += id =>
+        {
+            raised.Add(id);
+            fileEmptyAtFirstEvent.Add(DeviceRegistry.Load(PathOf).Devices.Count == 0);
+        };
+
+        Assert.Equal(2, registry.RevokeAll());
+
+        Assert.Equal(new[] { first.Id, second.Id }.Order(), raised.Order());
+        Assert.All(fileEmptyAtFirstEvent, Assert.True);
+        Assert.Empty(registry.Devices);
+        Assert.Null(registry.Authenticate(firstToken));
+        Assert.Null(registry.Authenticate(secondToken));
+        Assert.Empty(DeviceRegistry.Load(PathOf).Devices);
+    }
+
+    // Why: startup recovery runs RevokeAll again after a crash; the second run must be harmless and write nothing.
+    [Fact]
+    public void RevokeAll_on_an_empty_registry_writes_nothing_and_raises_nothing()
+    {
+        var registry = DeviceRegistry.Load(PathOf);
+        var raised = 0;
+        registry.Revoked += _ => raised++;
+
+        Assert.Equal(0, registry.RevokeAll());
+
+        Assert.Equal(0, raised);
+        Assert.False(File.Exists(PathOf));
+    }
+
+    // Why: all or nothing. A failed write must leave every device paired, or the regeneration could not be rolled back cleanly.
+    [Fact]
+    public void RevokeAll_that_cannot_write_keeps_every_device_and_raises_nothing()
+    {
+        var registry = DeviceRegistry.Load(PathOf);
+        var (device, token) = registry.Add("One", "generic", false);
+        var raised = 0;
+        registry.Revoked += _ => raised++;
+        File.Delete(PathOf);
+        Directory.CreateDirectory(PathOf); // a directory in the file's place: the atomic swap cannot succeed
+
+        Assert.ThrowsAny<Exception>(() => registry.RevokeAll());
+
+        Assert.Equal(0, raised);
+        Assert.Equal(device, registry.Authenticate(token));
+        Assert.Single(registry.Devices);
+    }
 }

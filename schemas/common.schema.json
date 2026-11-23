@@ -58,6 +58,21 @@
       "pattern": "^[0-9a-f]{64}$",
       "maxLength": 64
     },
+    "label": {
+      "title": "Label",
+      "description": "Text drawn on a widget or at a switch position. No control characters.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "profileName": {
+      "title": "ProfileName",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
     "telemetryField": {
       "title": "TelemetryField",
       "description": "A game telemetry field name, e.g. truck.light.beacon or isEngineRunning.",

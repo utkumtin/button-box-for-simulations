@@ -1,16 +1,17 @@
 using ButtonBox.E2EHost;
 
 // Test-only host for the Playwright session (decisions section 13). Never shipped.
-// Usage: ButtonBox.E2EHost <client dist dir>
+// Usage: ButtonBox.E2EHost <client dist dir> <editor dist dir>
 // Stops when stdin closes (the test runner exits), on Ctrl+C and on process exit. Everything it creates (data folder, CNG key) is
 // deleted again. It never uses %AppData%, TCP 443/80 or the production key name.
-if (args.Length != 1 || !Directory.Exists(args[0]))
+if (args.Length != 2 || !Directory.Exists(args[0]) || !Directory.Exists(args[1]))
 {
-    await Console.Error.WriteLineAsync("Usage: ButtonBox.E2EHost <client dist dir>");
+    await Console.Error.WriteLineAsync("Usage: ButtonBox.E2EHost <client dist dir> <editor dist dir>");
     return 2;
 }
 
 var clientDir = Path.GetFullPath(args[0]);
+var editorDir = Path.GetFullPath(args[1]);
 using var rig = new Rig();
 var stop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 Console.CancelKeyPress += (_, e) =>
@@ -31,7 +32,7 @@ _ = Task.Run(async () =>
 
 try
 {
-    await rig.StartAsync(clientDir);
+    await rig.StartAsync(clientDir, editorDir);
     Console.Out.WriteLine(rig.ReadyLine());
     await Console.Out.FlushAsync();
     await stop.Task;

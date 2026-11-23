@@ -77,6 +77,8 @@ public class SchemaDriftTests
         using var pairing = Load("pairing.schema.json");
         using var editor = Load("editor-api.schema.json");
         using var template = Load("template.schema.json");
+        using var profile = Load("profile.schema.json");
+        using var layout = Load("layout.schema.json");
 
         var token = Node(protocol.RootElement, "definitions", "helloMessage", "allOf", 1, "properties", "token");
         Eq("token.pattern", ContractValidator.TokenPattern, Normalize(token.GetProperty("pattern").GetString()!));
@@ -113,6 +115,49 @@ public class SchemaDriftTests
         Eq("template.name.maxLength", ContractValidator.TemplateNameMaxLength, props.GetProperty("name").GetProperty("maxLength").GetInt32());
         Seq("cutout.enum", ContractValidator.CutoutNames, props.GetProperty("cutout").GetProperty("enum"));
 
+        void Pattern(string what, string expectedPattern, JsonElement def, int? minLength, int maxLength)
+        {
+            Eq(what + ".pattern", expectedPattern, Normalize(def.GetProperty("pattern").GetString()!));
+            Eq(what + ".maxLength", maxLength, def.GetProperty("maxLength").GetInt32());
+            if (minLength is { } min)
+            {
+                Eq(what + ".minLength", min, def.GetProperty("minLength").GetInt32());
+            }
+        }
+
+        // Profile and layout (ProfileValidator).
+        Eq("profile.schemaVersion", ProfileValidator.SchemaVersion, Node(profile.RootElement, "properties", "schemaVersion").GetProperty("const").GetInt32());
+        Eq("layout.schemaVersion", ProfileValidator.SchemaVersion, Node(layout.RootElement, "properties", "schemaVersion").GetProperty("const").GetInt32());
+        Eq("profile.layouts.maxItems", ProfileValidator.MaxLayouts, Node(profile.RootElement, "properties", "layouts").GetProperty("maxItems").GetInt32());
+        Eq("layout.widgets.maxItems", ProfileValidator.MaxWidgets, Node(layout.RootElement, "properties", "widgets").GetProperty("maxItems").GetInt32());
+        Range("grid.columns", Node(layout.RootElement, "definitions", "grid", "properties", "columns"), ProfileValidator.GridColumnsMin, ProfileValidator.GridColumnsMax);
+        Range("grid.rows", Node(layout.RootElement, "definitions", "grid", "properties", "rows"), ProfileValidator.GridRowsMin, ProfileValidator.GridRowsMax);
+
+        var cell = Node(common.RootElement, "definitions", "gridCell", "properties");
+        Range("cell.col", cell.GetProperty("col"), ProfileValidator.CellPositionMin, ProfileValidator.CellPositionMax);
+        Range("cell.row", cell.GetProperty("row"), ProfileValidator.CellPositionMin, ProfileValidator.CellPositionMax);
+        Range("cell.colSpan", cell.GetProperty("colSpan"), ProfileValidator.CellSpanMin, ProfileValidator.CellSpanMax);
+        Range("cell.rowSpan", cell.GetProperty("rowSpan"), ProfileValidator.CellSpanMin, ProfileValidator.CellSpanMax);
+
+        Pattern("assetId", ProfileValidator.AssetIdPattern, Node(common.RootElement, "definitions", "assetId"), null, ProfileValidator.AssetIdLength);
+        Pattern("telemetryField", ProfileValidator.TelemetryFieldPattern, Node(common.RootElement, "definitions", "telemetryField"), null, ProfileValidator.TelemetryFieldMaxLength);
+        Pattern("label", ProfileValidator.LabelPattern, Node(common.RootElement, "definitions", "label"), ProfileValidator.LabelMinLength, ProfileValidator.LabelMaxLength);
+        Pattern("profileName", ProfileValidator.ProfileNamePattern, Node(common.RootElement, "definitions", "profileName"), ProfileValidator.ProfileNameMinLength, ProfileValidator.ProfileNameMaxLength);
+
+        var positions = Node(layout.RootElement, "definitions", "switchWidget", "allOf", 1, "properties", "positions");
+        Eq("positions.minItems", ProfileValidator.PositionsMin, positions.GetProperty("minItems").GetInt32());
+        Eq("positions.maxItems", ProfileValidator.PositionsMax, positions.GetProperty("maxItems").GetInt32());
+        Range("angle", Node(layout.RootElement, "definitions", "switchPosition", "properties", "angle"), ProfileValidator.AngleMin, ProfileValidator.AngleMax);
+        Range("rotary.scale", Node(layout.RootElement, "definitions", "rotaryLayer", "properties", "scale"), ProfileValidator.ScaleMin, ProfileValidator.ScaleMax);
+        Range("rotary.offsetX", Node(layout.RootElement, "definitions", "rotaryLayer", "properties", "offsetX"), ProfileValidator.OffsetMin, ProfileValidator.OffsetMax);
+        Range("rotary.offsetY", Node(layout.RootElement, "definitions", "rotaryLayer", "properties", "offsetY"), ProfileValidator.OffsetMin, ProfileValidator.OffsetMax);
+        Seq("holdMode.enum", ProfileValidator.HoldModeNames, Node(layout.RootElement, "definitions", "dualActionWidget", "allOf", 1, "properties", "holdMode", "enum"));
+
+        // ImageCheck limits (the import limits the editor API documents for assets).
+        var asset = Node(editor.RootElement, "definitions", "assetInfo", "properties");
+        Range("asset.size", asset.GetProperty("size"), ImageCheck.MinSize, ImageCheck.MaxSize);
+        Eq("asset.bytes.maximum", ImageCheck.MaxBytes, asset.GetProperty("bytes").GetProperty("maximum").GetInt32());
+
         return problems;
     }
 
@@ -133,6 +178,24 @@ public class SchemaDriftTests
     [InlineData("\"maxLength\": 64,\n      \"pattern\"", "\"maxLength\": 65,\n      \"pattern\"")]
     [InlineData("\"const\": 1", "\"const\": 2")]
     [InlineData("\"dynamicIsland\"", "\"island\"")]
+    [InlineData("\"maxItems\": 16,", "\"maxItems\": 17,")]
+    [InlineData("\"maximum\": 24", "\"maximum\": 25")]
+    [InlineData("\"maximum\": 16", "\"maximum\": 17")]
+    [InlineData("\"minItems\": 2", "\"minItems\": 3")]
+    [InlineData("\"maxItems\": 8", "\"maxItems\": 9")]
+    [InlineData("\"minimum\": -180", "\"minimum\": -179")]
+    [InlineData("\"minimum\": 0.1", "\"minimum\": 0.2")]
+    [InlineData("\"minimum\": -0.5", "\"minimum\": -0.4")]
+    [InlineData("\"fire\"", "\"fired\"")]
+    [InlineData("[0-9a-f]{64}", "[0-9a-f]{63}")]
+    [InlineData("{0,63}$", "{0,62}$")]
+    [InlineData("\"maxLength\": 32,", "\"maxLength\": 33,")]
+    [InlineData("\\\\u001f\\\\u007f]+$", "\\\\u001e\\\\u007f]+$")]
+    [InlineData("\"colSpan\": { \"type\": \"integer\", \"minimum\": 1, \"maximum\": 64 }", "\"colSpan\": { \"type\": \"integer\", \"minimum\": 1, \"maximum\": 63 }")]
+    [InlineData("\"col\": { \"type\": \"integer\", \"minimum\": 0, \"maximum\": 64 }", "\"col\": { \"type\": \"integer\", \"minimum\": 0, \"maximum\": 65 }")]
+    [InlineData("\"minimum\": 512", "\"minimum\": 513")]
+    [InlineData("\"maximum\": 2048", "\"maximum\": 4096")]
+    [InlineData("4194304", "4194305")]
     public void A_changed_schema_value_is_detected(string from, string to)
     {
         var touched = false;

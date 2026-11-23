@@ -1,5 +1,5 @@
 import { expect, test as base, type Locator, type Page } from '@playwright/test';
-import { Control, hostInfo, type DeviceRecord, type Received } from './host';
+import { Control, EditorApi, hostInfo, type DeviceRecord, type Received } from './host';
 
 /** One scripted touch event. `wait` pauses (ms) after the event. */
 export interface TouchStep {
@@ -24,6 +24,9 @@ export interface Box {
 
 interface Fixtures {
   control: Control;
+  editorApi: EditorApi;
+  /** The real editor in a desktop-size context with the session cookie. WebKit stands in for WebView2 (Chromium). */
+  editor: () => Promise<Page>;
   open: (device?: 'phone' | 'noLayout') => Promise<Box>;
 }
 
@@ -35,7 +38,19 @@ interface Violation {
 declare global {
   interface Window {
     __csp: Violation[];
+    /** True once the "Reconnecting" overlay was in the DOM since the flag was last cleared. */
+    __reconnecting: boolean;
+    /** Set by a test on the loaded page; still there afterwards means the page was never reloaded. */
+    __mark?: string;
   }
+}
+
+/** Runs in every page before its own scripts: collects CSP violations, so a test can fail on them. */
+function watchCsp(): void {
+  window.__csp = [];
+  document.addEventListener('securitypolicyviolation', (e) => {
+    window.__csp.push({ directive: e.violatedDirective, blocked: e.blockedURI });
+  });
 }
 
 /**
@@ -52,6 +67,45 @@ export const test = base.extend<Fixtures>({
     await control.setState({ telemetry: true, gameListening: true, engineNeverStarts: false });
   },
 
+  // eslint-disable-next-line no-empty-pattern
+  editorApi: async ({}, provide) => {
+    await provide(new EditorApi(hostInfo()));
+  },
+
+  editor: async ({ browser }, provide) => {
+    const info = hostInfo();
+    const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, hasTouch: false, isMobile: false });
+    // The user's own browser never has this cookie; the test takes it from the host's ready line.
+    await context.addCookies([
+      { name: 'bbs_editor', value: info.editorSecret, domain: '127.0.0.1', path: '/', httpOnly: true, sameSite: 'Strict' },
+    ]);
+    const problems: string[] = [];
+    const state: { page: Page | null } = { page: null };
+
+    await provide(async () => {
+      const page = await context.newPage();
+      page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+      // The host refusing an editor request (a 422 from the profile gate, a 401 from a missing cookie) is a failure too.
+      page.on('response', (res) => {
+        const url = new URL(res.url());
+        if (url.pathname.startsWith('/editor/api/') && res.status() >= 400) {
+          problems.push(`${res.request().method()} ${url.pathname} -> ${res.status()}`);
+        }
+      });
+      await page.addInitScript(watchCsp);
+      state.page = page;
+      await page.goto(`http://127.0.0.1:${info.editorPort}/editor/`);
+      return page;
+    });
+
+    if (state.page) {
+      const csp = await state.page.evaluate(() => window.__csp).catch(() => [] as Violation[]);
+      expect(csp, 'CSP violations').toEqual([]);
+    }
+    await context.close();
+    expect(problems, 'page errors and refused editor requests').toEqual([]);
+  },
+
   open: async ({ page, control }, provide) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
@@ -66,6 +120,11 @@ export const test = base.extend<Fixtures>({
         document.addEventListener('securitypolicyviolation', (e) => {
           window.__csp.push({ directive: e.violatedDirective, blocked: e.blockedURI });
         });
+        // A connection that stays up never shows the overlay; this catches one that flashes by between two polls.
+        window.__reconnecting = false;
+        new MutationObserver(() => {
+          if (document.body?.textContent?.includes('Reconnecting')) window.__reconnecting = true;
+        }).observe(document, { subtree: true, childList: true, characterData: true });
         try {
           localStorage.setItem('bbs.device', JSON.stringify(record));
         } catch {

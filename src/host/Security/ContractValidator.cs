@@ -144,7 +144,7 @@ public static class ContractValidator
     private static bool InRange(double value, double min, double max) => value >= min && value <= max;
 
     // Counts code points and rejects lone surrogates (they cannot be encoded as UTF-8 text).
-    private static bool HasLengthInCodePoints(string? value, int min, int max)
+    internal static bool HasLengthInCodePoints(string? value, int min, int max)
     {
         if (value is null)
         {

@@ -143,7 +143,7 @@ public class ProfileCheckTests
     [Fact]
     public void Demo_fixture_loads_without_problems()
     {
-        // The demo profile is what Phase 3 runs with; it must always be accepted by the engine.
+        // The demo profile is the first-run seed (decisions §6); it must always be accepted by the engine with the shipped catalog.
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "global.json")))
         {
@@ -153,7 +153,7 @@ public class ProfileCheckTests
         var demo = Path.Combine(dir.FullName, "src", "host", "App", "Demo");
 
         var profile = JsonSerializer.Deserialize<Profile>(File.ReadAllText(Path.Combine(demo, "demo.profile.json")), ContractJson.Options);
-        var catalog = JsonSerializer.Deserialize<Catalog>(File.ReadAllText(Path.Combine(demo, "ets2-demo.catalog.json")), ContractJson.Options);
+        var catalog = JsonSerializer.Deserialize<Catalog>(File.ReadAllText(Path.Combine(dir.FullName, "catalog", "ets2.json")), ContractJson.Options);
         Assert.NotNull(profile);
         Assert.NotNull(catalog);
 

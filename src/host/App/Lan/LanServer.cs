@@ -49,7 +49,7 @@ public sealed class LanServerOptions
     public required PairingSession Pairing { get; init; }
 
     /// <summary>The images served at <c>/assets/{sha256}</c>. Null: every asset request is a 404.</summary>
-    public AssetStore? Assets { get; init; }
+    public IAssetSource? Assets { get; init; }
 
     public TimeProvider Time { get; init; } = TimeProvider.System;
 }
@@ -242,14 +242,14 @@ public sealed class LanServer : IAsyncDisposable
     {
         var response = context.Response;
         var head = HttpMethods.IsHead(context.Request.Method);
-        if ((!head && !HttpMethods.IsGet(context.Request.Method)) || _o.Assets is not { } assets || !assets.TryGet(id, out var bytes))
+        if ((!head && !HttpMethods.IsGet(context.Request.Method)) || _o.Assets is not { } assets || !assets.TryGet(id, out var type, out var bytes))
         {
             response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
 
         response.StatusCode = StatusCodes.Status200OK;
-        response.ContentType = "image/png";
+        response.ContentType = type == AssetType.Webp ? "image/webp" : "image/png";
         response.Headers.CacheControl = "public, max-age=31536000, immutable";
         response.ContentLength = bytes.Length;
         if (!head)

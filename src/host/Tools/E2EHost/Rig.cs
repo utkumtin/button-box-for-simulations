@@ -6,6 +6,7 @@ using System.Text.Json;
 using ButtonBox.App;
 using ButtonBox.App.Lan;
 using ButtonBox.App.Pairing;
+using ButtonBox.App.Profiles;
 using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
 using ButtonBox.Security;
@@ -21,8 +22,9 @@ using Microsoft.Extensions.Logging;
 namespace ButtonBox.E2EHost;
 
 /// <summary>
-/// The real LAN server, WebSocket layer, game session, demo layout and Simulator on loopback, with a throwaway CA, data folder
-/// and key name, plus a loopback-only control endpoint for the tests. Nothing here is written to a log.
+/// The real LAN server, WebSocket layer, game session, profile store (seeded with the first-run profile), editor server and
+/// Simulator on loopback, with a throwaway CA, data folder and key name, plus a loopback-only control endpoint for the tests.
+/// Nothing here is written to a log.
 /// </summary>
 internal sealed class Rig : IDisposable
 {
@@ -39,6 +41,8 @@ internal sealed class Rig : IDisposable
     private X509Certificate2? _certificate;
     private DeviceConnections? _connections;
     private GameSession? _session;
+    private LocalServer? _editor;
+    private EditorSecret? _editorSecret;
     private PairingSession? _pairing;
     private LanServer? _lan;
     private WebApplication? _control;
@@ -52,7 +56,7 @@ internal sealed class Rig : IDisposable
         _secretBytes = Encoding.UTF8.GetBytes(_secret);
     }
 
-    public async Task StartAsync(string clientDir)
+    public async Task StartAsync(string clientDir, string editorDir)
     {
         Directory.CreateDirectory(_root);
         var shipped = Path.Combine(AppContext.BaseDirectory, "templates");
@@ -74,8 +78,19 @@ internal sealed class Rig : IDisposable
         };
         _noLayout = registry.Add("E2E phone without layout", templates.GetOrAddGeneric(screen).Id, screenMismatch: false);
 
-        var demo = DemoContent.Load();
-        _session = new GameSession(demo.Engine, _simulator, _simulator);
+        // The same composition as AppHost.Create, on the throwaway data folder: the store publishes to the session, the first run
+        // seeds "ETS2 starter" and the session then starts from the active engine.
+        var catalogs = new CatalogStore(Path.Combine(AppContext.BaseDirectory, "catalog"));
+        var assets = new AssetLibrary(Path.Combine(_root, "assets"));
+        _session = new GameSession(null, _simulator, _simulator);
+        var profiles = new ProfileStore(_root, new ProfileGate(catalogs, templates, assets), catalogs, _session);
+        var firstRun = FirstRun.Run(_root, assets, profiles, DemoContent.ReadSeed());
+        if (firstRun.Count > 0)
+        {
+            throw new InvalidOperationException("The first-run seed did not complete.");
+        }
+
+        _session.Publish(profiles.CreateActiveEngine(), keepSwitchPositions: false);
         _connections = new DeviceConnections(registry, new DeviceConnectionsOptions(), _session);
 
         const string label = "buttonbox-e2e";
@@ -105,7 +120,27 @@ internal sealed class Rig : IDisposable
             AppleTouchIconPng = AppleTouchIcon.Render(logoBytes.ToArray()),
             Connections = _connections,
             Pairing = _pairing,
-            Assets = demo.Assets,
+            Assets = assets,
+        });
+
+        // The editor's loopback server with its API, as Program.cs wires it. No CA regeneration (503), a fixed firewall answer
+        // (the real probe would read this machine's rules), nothing else is left out.
+        _editorSecret = EditorSecret.Create();
+        _editor = await LocalServer.StartAsync(clientDir, editorDir, new EditorApiOptions
+        {
+            Secret = _editorSecret,
+            Registry = registry,
+            Templates = templates,
+            Pairing = () => _pairing,
+            IsConnected = id => _connections.IsConnected(id),
+            Status = () => new HostStatus { MdnsName = label, LanServer = LanServerState.Running, Addresses = [] },
+            Profiles = profiles,
+            Catalogs = catalogs,
+            Assets = assets,
+            Session = _session,
+            Telemetry = _simulator,
+            CaFingerprint = () => _ca.Sha256Fingerprint,
+            Firewall = new FirewallStatus(() => FirewallState.Present, TimeProvider.System),
         });
 
         await StartControlAsync();
@@ -117,6 +152,8 @@ internal sealed class Rig : IDisposable
         {
             port = _lan!.Port,
             controlPort = _controlPort,
+            editorPort = _editor!.BaseAddress.Port,
+            editorSecret = _editorSecret!.Value, // the value of the bbs_editor cookie; stdout only
             secret = _secret,
             devices = new
             {
@@ -133,6 +170,13 @@ internal sealed class Rig : IDisposable
             if (_control is not null)
             {
                 await _control.DisposeAsync();
+            }
+        });
+        await Quietly(async () =>
+        {
+            if (_editor is not null)
+            {
+                await _editor.DisposeAsync();
             }
         });
         await Quietly(async () =>

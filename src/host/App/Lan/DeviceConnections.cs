@@ -395,13 +395,13 @@ public sealed class DeviceConnections : IAsyncDisposable
             _sender = sender;
             if (owner._session is not { } session)
             {
-                sender.Start([WelcomeJson], null, null);
+                sender.Start([WelcomeJson], null, null, null);
                 return;
             }
 
             var link = session.Open(device.TemplateId, sender);
             _link = link;
-            sender.Start([WelcomeJson, link.LayoutFrame], link.BuildStatus, link.Layout is null ? null : link.BuildState);
+            sender.Start([WelcomeJson], link.BuildLayout, link.BuildStatus, link.BuildState);
         }
 
         // False: the engine threw, which is a host bug; the connection is closed with 1011 rather than left half alive.

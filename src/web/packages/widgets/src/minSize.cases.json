@@ -1,0 +1,447 @@
+{
+  "description": "Shared cases for the minimum widget size (decisions \u00a76). Read by minSize.test.ts and by Core.Tests WidgetSizeTests.",
+  "cases": [
+    {
+      "name": "14 Pro 8x3: a toggle fits one cell",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 8,
+        "rows": 3
+      },
+      "type": "toggle",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 1,
+        "rowSpan": 1
+      }
+    },
+    {
+      "name": "14 Pro 8x3: an encoder fits one cell (91.75 pt wide)",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 8,
+        "rows": 3
+      },
+      "type": "encoder",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 1,
+        "rowSpan": 1
+      }
+    },
+    {
+      "name": "14 Pro 24x12: a toggle in one 31 pt cell is too small",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 24,
+        "rows": 12
+      },
+      "type": "toggle",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": false,
+      "minimumSpan": {
+        "colSpan": 2,
+        "rowSpan": 2
+      }
+    },
+    {
+      "name": "14 Pro 24x12: a toggle spanning 2x2 fits",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 24,
+        "rows": 12
+      },
+      "type": "toggle",
+      "colSpan": 2,
+      "rowSpan": 2,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 2,
+        "rowSpan": 2
+      }
+    },
+    {
+      "name": "14 Pro 24x12: 2 columns but 1 row is too low",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 24,
+        "rows": 12
+      },
+      "type": "dualAction",
+      "colSpan": 2,
+      "rowSpan": 1,
+      "fits": false,
+      "minimumSpan": {
+        "colSpan": 2,
+        "rowSpan": 2
+      }
+    },
+    {
+      "name": "14 Pro 24x12: an encoder spanning 2x2 is too narrow for two 44 pt halves",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 24,
+        "rows": 12
+      },
+      "type": "encoder",
+      "colSpan": 2,
+      "rowSpan": 2,
+      "fits": false,
+      "minimumSpan": {
+        "colSpan": 3,
+        "rowSpan": 2
+      }
+    },
+    {
+      "name": "14 Pro 24x12: an encoder spanning 3x2 fits",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 24,
+        "rows": 12
+      },
+      "type": "encoder",
+      "colSpan": 3,
+      "rowSpan": 2,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 3,
+        "rowSpan": 2
+      }
+    },
+    {
+      "name": "14 Pro 24x12: a switch needs the same width as an encoder",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 24,
+        "rows": 12
+      },
+      "type": "switch",
+      "colSpan": 2,
+      "rowSpan": 2,
+      "fits": false,
+      "minimumSpan": {
+        "colSpan": 3,
+        "rowSpan": 2
+      }
+    },
+    {
+      "name": "14 Pro 24x16: rows of 23.3 pt need a span of 2",
+      "screen": {
+        "width": 852,
+        "height": 393,
+        "safeArea": {
+          "top": 0,
+          "right": 59,
+          "bottom": 20,
+          "left": 59
+        },
+        "pixelRatio": 3
+      },
+      "grid": {
+        "columns": 24,
+        "rows": 16
+      },
+      "type": "toggle",
+      "colSpan": 2,
+      "rowSpan": 2,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 2,
+        "rowSpan": 2
+      }
+    },
+    {
+      "name": "safe-area insets shrink the usable area (218 pt over 5 columns)",
+      "screen": {
+        "width": 300,
+        "height": 300,
+        "safeArea": {
+          "top": 10,
+          "right": 41,
+          "bottom": 10,
+          "left": 41
+        },
+        "pixelRatio": 2
+      },
+      "grid": {
+        "columns": 5,
+        "rows": 6
+      },
+      "type": "toggle",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": false,
+      "minimumSpan": {
+        "colSpan": 2,
+        "rowSpan": 1
+      }
+    },
+    {
+      "name": "exactly 44 pt fits",
+      "screen": {
+        "width": 220,
+        "height": 220,
+        "safeArea": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        },
+        "pixelRatio": 2
+      },
+      "grid": {
+        "columns": 5,
+        "rows": 5
+      },
+      "type": "toggle",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 1,
+        "rowSpan": 1
+      }
+    },
+    {
+      "name": "43.8 pt does not fit",
+      "screen": {
+        "width": 219,
+        "height": 220,
+        "safeArea": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        },
+        "pixelRatio": 2
+      },
+      "grid": {
+        "columns": 5,
+        "rows": 5
+      },
+      "type": "toggle",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": false,
+      "minimumSpan": {
+        "colSpan": 2,
+        "rowSpan": 1
+      }
+    },
+    {
+      "name": "exactly 88 pt fits an encoder",
+      "screen": {
+        "width": 264,
+        "height": 220,
+        "safeArea": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        },
+        "pixelRatio": 2
+      },
+      "grid": {
+        "columns": 3,
+        "rows": 5
+      },
+      "type": "encoder",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 1,
+        "rowSpan": 1
+      }
+    },
+    {
+      "name": "a division that should be exactly 44 pt still fits",
+      "screen": {
+        "width": 308,
+        "height": 300,
+        "safeArea": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        },
+        "pixelRatio": 2
+      },
+      "grid": {
+        "columns": 7,
+        "rows": 3
+      },
+      "type": "dualAction",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 1,
+        "rowSpan": 1
+      }
+    },
+    {
+      "name": "a fine row grid (12.5 pt rows) needs a 4-row span",
+      "screen": {
+        "width": 200,
+        "height": 200,
+        "safeArea": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        },
+        "pixelRatio": 2
+      },
+      "grid": {
+        "columns": 1,
+        "rows": 16
+      },
+      "type": "toggle",
+      "colSpan": 1,
+      "rowSpan": 1,
+      "fits": false,
+      "minimumSpan": {
+        "colSpan": 1,
+        "rowSpan": 4
+      }
+    },
+    {
+      "name": "a tiny screen with a fine grid needs a wide encoder",
+      "screen": {
+        "width": 200,
+        "height": 200,
+        "safeArea": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        },
+        "pixelRatio": 2
+      },
+      "grid": {
+        "columns": 24,
+        "rows": 4
+      },
+      "type": "encoder",
+      "colSpan": 10,
+      "rowSpan": 1,
+      "fits": false,
+      "minimumSpan": {
+        "colSpan": 11,
+        "rowSpan": 1
+      }
+    },
+    {
+      "name": "a span that is exactly 44 pt but computes to 43.99999999999999 still fits",
+      "screen": {
+        "width": 203,
+        "height": 220,
+        "safeArea": {
+          "top": 0,
+          "right": 0.3,
+          "bottom": 0,
+          "left": 0.3
+        },
+        "pixelRatio": 2
+      },
+      "grid": {
+        "columns": 23,
+        "rows": 5
+      },
+      "type": "toggle",
+      "colSpan": 5,
+      "rowSpan": 1,
+      "fits": true,
+      "minimumSpan": {
+        "colSpan": 5,
+        "rowSpan": 1
+      }
+    }
+  ]
+}

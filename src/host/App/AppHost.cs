@@ -1,6 +1,7 @@
 using System.Net;
 using ButtonBox.App.Lan;
 using ButtonBox.App.Pairing;
+using ButtonBox.App.Profiles;
 using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
 using ButtonBox.Discovery;
@@ -16,6 +17,9 @@ public sealed class AppHostOptions
 
     /// <summary>The templates that ship with the app.</summary>
     public required string ShippedTemplatesDir { get; init; }
+
+    /// <summary>The action catalogs that ship with the app (<c>catalog/*.json</c>).</summary>
+    public required string ShippedCatalogsDir { get; init; }
 
     public required string ClientDir { get; init; }
 
@@ -66,7 +70,9 @@ public sealed class AppHost : IAsyncDisposable
     private bool _startFailed;
     private bool _disposed;
 
-    private AppHost(AppHostOptions options, string? mdnsName, DeviceRegistry? registry, TemplateStore templates, SetupProblem problem, ScsSimulator simulator, DemoContent demo)
+    private AppHost(
+        AppHostOptions options, string? mdnsName, DeviceRegistry? registry, TemplateStore templates, SetupProblem problem, ScsSimulator simulator,
+        CatalogStore catalogs, AssetLibrary assets, ProfileStore profiles, GameSession session, IReadOnlyList<string> firstRunProblems)
     {
         _o = options;
         _mdnsName = mdnsName;
@@ -75,8 +81,11 @@ public sealed class AppHost : IAsyncDisposable
         Setup = problem;
         Secret = EditorSecret.Create();
         Simulator = simulator;
-        Demo = demo;
-        Session = new GameSession(demo.Engine, simulator, simulator);
+        Catalogs = catalogs;
+        Assets = assets;
+        Profiles = profiles;
+        Session = session;
+        FirstRunProblems = firstRunProblems;
     }
 
     /// <summary>Raised when <see cref="Status"/> may have changed, on any thread. Handlers must not throw or block.</summary>
@@ -94,8 +103,17 @@ public sealed class AppHost : IAsyncDisposable
     /// <summary>Until Phase 5 the Simulator (ETS2 model) is the app's only backend and state provider (decisions §3).</summary>
     public ScsSimulator Simulator { get; }
 
-    /// <summary>The bundled read-only demo profile, catalog and images (decisions §3, §7).</summary>
-    public DemoContent Demo { get; }
+    /// <summary>The action catalogs that ship with the app (decisions §4).</summary>
+    public CatalogStore Catalogs { get; }
+
+    /// <summary>The user's images (decisions §7); the LAN <c>/assets</c> route serves from it.</summary>
+    public AssetLibrary Assets { get; }
+
+    /// <summary>The user's profiles and the active one (decisions §6). Save and activation publish to <see cref="Session"/>.</summary>
+    public ProfileStore Profiles { get; }
+
+    /// <summary>Why the first-run seed did not complete; empty when it was not needed or succeeded.</summary>
+    public IReadOnlyList<string> FirstRunProblems { get; }
 
     /// <summary>Gestures in, outputs to the <see cref="Simulator"/>, telemetry out to every phone.</summary>
     public GameSession Session { get; }
@@ -136,9 +154,9 @@ public sealed class AppHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// Settings, then registry, then templates, then the bundled demo. Touches no port and no key.
+    /// Settings, then registry, templates, catalogs, the asset library and the profiles (seeded on the first run). Touches no port and no key.
     /// </summary>
-    /// <exception cref="InvalidOperationException">A bundled demo file is damaged. A bug, so it fails here, loudly, and never runs with an empty profile.</exception>
+    /// <exception cref="InvalidOperationException">A bundled demo file is damaged. A bug, so it fails here, loudly.</exception>
     public static AppHost Create(AppHostOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -157,9 +175,17 @@ public sealed class AppHost : IAsyncDisposable
         }
 
         var templates = new TemplateStore(options.ShippedTemplatesDir, Path.Combine(options.DataDir, "templates"));
-        var demo = DemoContent.Load();
+        var catalogs = new CatalogStore(options.ShippedCatalogsDir);
+        var assets = new AssetLibrary(Path.Combine(options.DataDir, "assets"));
         var simulator = new ScsSimulator(options.Time);
-        return new AppHost(options, settings.MdnsName, registry, templates, problem, simulator, demo);
+
+        // The store publishes to the session and the session starts without a profile; the active engine is published once the
+        // store (and the first-run seed) are ready. No phone is connected yet.
+        var session = new GameSession(null, simulator, simulator);
+        var profiles = new ProfileStore(options.DataDir, new ProfileGate(catalogs, templates, assets), catalogs, session);
+        var firstRun = FirstRun.Run(options.DataDir, assets, profiles, DemoContent.ReadSeed());
+        session.Publish(profiles.CreateActiveEngine(), keepSwitchPositions: false);
+        return new AppHost(options, settings.MdnsName, registry, templates, problem, simulator, catalogs, assets, profiles, session, firstRun);
     }
 
     /// <summary>
@@ -232,7 +258,7 @@ public sealed class AppHost : IAsyncDisposable
                 Time = _o.Time,
                 BindAddress = _o.BindAddress,
                 Session = Session,
-                Assets = Demo.Assets,
+                Assets = Assets,
             });
             lan.StatusChanged += RaiseStatusChanged;
             lock (_gate)

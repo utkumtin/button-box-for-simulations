@@ -221,6 +221,33 @@ public sealed class DeviceRegistry
         return true;
     }
 
+    /// <summary>
+    /// Removes every device in one write to devices.json, then raises <see cref="Revoked"/> once per id. All or nothing: when the write
+    /// fails the exception propagates and no device is gone. Idempotent: with no device nothing is written. Returns how many were removed.
+    /// </summary>
+    public int RevokeAll()
+    {
+        string[] ids;
+        lock (_gate)
+        {
+            if (_entries.Count == 0)
+            {
+                return 0;
+            }
+
+            ids = [.. _entries.Select(e => e.Record.Id)];
+            Persist([]);
+        }
+
+        // Outside the lock, like Revoke, so a handler may call back into the registry.
+        foreach (var id in ids)
+        {
+            Revoked?.Invoke(id);
+        }
+
+        return ids.Length;
+    }
+
     private void Persist(List<Entry> next)
     {
         var model = new FileModel

@@ -297,7 +297,11 @@ public sealed class GameSessionTests : IAsyncDisposable
         _ = await ReadStateAsync(socket, _ => true);
         try
         {
-            for (var i = 0; i < 40; i++)
+            // The first press must be stuck in the backend before the rest arrive. Otherwise, on a busy machine the consumer may
+            // take it off the queue only after the queue filled, one more output fits, and the count is 34 (seen in Phase 4 runs).
+            await LanRig.SendTextAsync(socket, Gesture("high-beam", "tap"));
+            await LanRig.WaitForAsync(() => backend.Calls, calls => calls == 1);
+            for (var i = 1; i < 40; i++)
             {
                 await LanRig.SendTextAsync(socket, Gesture("high-beam", "tap"));
             }

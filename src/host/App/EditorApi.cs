@@ -1,5 +1,8 @@
 using System.Text.Json;
+using ButtonBox.App.Lan;
 using ButtonBox.App.Pairing;
+using ButtonBox.App.Profiles;
+using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
 using ButtonBox.Security;
 using Microsoft.AspNetCore.Http;
@@ -23,6 +26,27 @@ public sealed class EditorApiOptions
     public required Func<string, bool> IsConnected { get; init; }
 
     public required Func<HostStatus> Status { get; init; }
+
+    // The Phase 4 parts. Each is null while it does not exist (and in the older tests); its routes then answer 503.
+    public ProfileStore? Profiles { get; init; }
+
+    public CatalogStore? Catalogs { get; init; }
+
+    public AssetLibrary? Assets { get; init; }
+
+    /// <summary>Test mode sends through it.</summary>
+    public GameSession? Session { get; init; }
+
+    /// <summary>The live field list of the Telemetry page.</summary>
+    public IStateProvider? Telemetry { get; init; }
+
+    /// <summary>SHA-256 of the CA certificate, or null when there is no usable CA.</summary>
+    public Func<string?>? CaFingerprint { get; init; }
+
+    public IFirewallStatus? Firewall { get; init; }
+
+    /// <summary>Regenerates the CA (see <see cref="LanHost.RegenerateCertificateAuthorityAsync"/>).</summary>
+    public Func<Task<CaRegenerationResult>>? RegenerateCa { get; init; }
 }
 
 /// <summary>
@@ -30,10 +54,15 @@ public sealed class EditorApiOptions
 /// refusal happen before this runs (see <see cref="LocalServer"/>). Every request needs the session cookie; every POST also
 /// needs a matching Origin and a JSON content type. Nothing here ever logs or echoes the secret.
 /// </summary>
-public static class EditorApi
+public static partial class EditorApi
 {
     public const string CookieName = "bbs_editor";
     public const int MaxBodyBytes = 4096;
+    public const int MaxProfileBytes = 1024 * 1024;
+    public const int MaxImageBytes = 4 * 1024 * 1024;
+
+    // A copy of the contract options with a small depth cap: a hostile body cannot nest deeper than any real profile.
+    private static readonly JsonSerializerOptions BoundedJson = new(ContractJson.Options) { MaxDepth = 32 };
 
     public static async Task HandleAsync(HttpContext context, EditorApiOptions o)
     {
@@ -64,7 +93,8 @@ public static class EditorApi
                 return;
             }
 
-            if (!IsJson(request.ContentType))
+            var upload = Resolve(request.Path.Value ?? string.Empty, isPost).Route == Route.AssetUpload;
+            if (upload ? !IsImage(request.ContentType) : !IsJson(request.ContentType))
             {
                 response.StatusCode = StatusCodes.Status415UnsupportedMediaType;
                 return;
@@ -87,53 +117,28 @@ public static class EditorApi
 
     private static async Task RouteAsync(HttpContext context, EditorApiOptions o, bool isPost)
     {
-        var path = context.Request.Path.Value ?? string.Empty;
-        var segments = path.Split('/'); // "/devices/x/rename" -> "", "devices", "x", "rename"; stray or trailing slashes do not match
-        string? id = null;
-        string? route = null;
-        if (segments.Length == 2)
-        {
-            route = segments[1];
-            route = route is "status" or "devices" or "templates" or "pairing" ? route : null;
-        }
-        else if (segments.Length == 3 && segments[1] == "pairing" && segments[2] is "start" or "code" or "cancel")
-        {
-            route = "pairing/" + segments[2];
-        }
-        else if (segments.Length == 4 && segments[1] == "devices" && segments[3] is "rename" or "revoke")
-        {
-            id = segments[2];
-            route = "devices/" + segments[3];
-        }
-
-        if (route is null)
-        {
-            context.Response.StatusCode = StatusCodes.Status404NotFound;
-            return;
-        }
-
-        var wantsPost = route.Contains('/');
-        if (wantsPost != isPost)
-        {
-            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
-            return;
-        }
-
+        var (route, id) = Resolve(context.Request.Path.Value ?? string.Empty, isPost);
         switch (route)
         {
-            case "status":
+            case Route.NotFound:
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            case Route.WrongMethod:
+                context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+                return;
+            case Route.Status:
                 await WriteJsonAsync(context, o.Status());
                 break;
-            case "devices":
+            case Route.Devices:
                 await DevicesAsync(context, o);
                 break;
-            case "templates":
+            case Route.Templates:
                 await WriteJsonAsync(context, new TemplateList { Templates = o.Templates.All });
                 break;
-            case "pairing":
+            case Route.Pairing:
                 await PairingAsync(context, o, static (p, _) => Task.FromResult(p.Status), needsBody: false);
                 break;
-            case "pairing/start":
+            case Route.PairingStart:
                 // Pairing without a running HTTPS server (443 taken, no CA, …) would hand the phone a certificate page
                 // whose "Continue" leads nowhere; the editor banner already explains the cause.
                 if (o.Status().LanServer != LanServerState.Running)
@@ -144,19 +149,118 @@ public static class EditorApi
 
                 await PairingAsync(context, o, StartPairingAsync, needsBody: true);
                 break;
-            case "pairing/code":
+            case Route.PairingCode:
                 await PairingAsync(context, o, static (p, _) => Task.FromResult(p.ShowCode()), needsBody: false, conflictIsInvalidOperation: true);
                 break;
-            case "pairing/cancel":
+            case Route.PairingCancel:
                 await PairingAsync(context, o, static (p, _) => p.CancelAsync(), needsBody: false);
                 break;
-            case "devices/rename":
+            case Route.DeviceRename:
                 await RenameAsync(context, o, id!);
                 break;
-            default: // devices/revoke
+            case Route.DeviceRevoke:
                 await RevokeAsync(context, o, id!);
                 break;
+            default:
+                await RoutePhase4Async(context, o, route, id);
+                break;
         }
+    }
+
+    private enum Route
+    {
+        NotFound,
+        WrongMethod,
+        Status,
+        Devices,
+        Templates,
+        Pairing,
+        PairingStart,
+        PairingCode,
+        PairingCancel,
+        DeviceRename,
+        DeviceRevoke,
+        Catalogs,
+        Profiles,
+        ProfileGet,
+        ProfileExport,
+        ProfileCreate,
+        ProfileImport,
+        ProfileSave,
+        ProfileDuplicate,
+        ProfileDelete,
+        ProfileActivate,
+        Assets,
+        AssetUpload,
+        AssetGet,
+        AssetDelete,
+        Telemetry,
+        Test,
+        Settings,
+        RegenerateCa,
+    }
+
+    /// <summary>
+    /// The route table: path and method to a route and its id. A path that exists for another method is <see cref="Route.WrongMethod"/>.
+    /// An id is only text here; its handler checks it against the id pattern before any store call.
+    /// </summary>
+    private static (Route Route, string? Id) Resolve(string path, bool isPost)
+    {
+        var s = path.Split('/'); // "/devices/x/rename" -> "", "devices", "x", "rename"; stray or trailing slashes give an empty part
+        if (s.Length < 2 || s.Length > 4 || s.Skip(1).Any(string.IsNullOrEmpty))
+        {
+            return (Route.NotFound, null);
+        }
+
+        (Route Route, string? Id, bool Post)? hit = s.Length switch
+        {
+            2 => s[1] switch
+            {
+                "status" => (Route.Status, null, false),
+                "devices" => (Route.Devices, null, false),
+                "templates" => (Route.Templates, null, false),
+                "pairing" => (Route.Pairing, null, false),
+                "catalogs" => (Route.Catalogs, null, false),
+                "profiles" => (Route.Profiles, null, false),
+                "assets" => (Route.Assets, null, false),
+                "telemetry" => (Route.Telemetry, null, false),
+                "settings" => (Route.Settings, null, false),
+                "test" => (Route.Test, null, true),
+                _ => null,
+            },
+            3 => (s[1], s[2]) switch
+            {
+                ("pairing", "start") => (Route.PairingStart, null, true),
+                ("pairing", "code") => (Route.PairingCode, null, true),
+                ("pairing", "cancel") => (Route.PairingCancel, null, true),
+                ("profiles", "create") when isPost => (Route.ProfileCreate, null, true),
+                ("profiles", "import") when isPost => (Route.ProfileImport, null, true),
+                ("profiles", _) => (Route.ProfileGet, s[2], false),
+                ("assets", "upload") => (Route.AssetUpload, null, true),
+                ("assets", _) => (Route.AssetGet, s[2], false),
+                ("settings", "regenerate-ca") => (Route.RegenerateCa, null, true),
+                _ => null,
+            },
+            _ => (s[1], s[3]) switch
+            {
+                ("devices", "rename") => (Route.DeviceRename, s[2], true),
+                ("devices", "revoke") => (Route.DeviceRevoke, s[2], true),
+                ("profiles", "export") => (Route.ProfileExport, s[2], false),
+                ("profiles", "save") => (Route.ProfileSave, s[2], true),
+                ("profiles", "duplicate") => (Route.ProfileDuplicate, s[2], true),
+                ("profiles", "delete") => (Route.ProfileDelete, s[2], true),
+                ("profiles", "activate") => (Route.ProfileActivate, s[2], true),
+                ("assets", "delete") => (Route.AssetDelete, s[2], true),
+                _ => null,
+            },
+        };
+
+        return hit switch
+        {
+            null => (Route.NotFound, null),
+            { } h when h.Post != isPost => (Route.WrongMethod, null),
+            { } h => (h.Route, h.Id),
+        };
     }
 
     private static async Task DevicesAsync(HttpContext context, EditorApiOptions o)
@@ -302,11 +406,17 @@ public static class EditorApi
         && parsed.MediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase)
         && (!parsed.Charset.HasValue || parsed.Charset.Equals("utf-8", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Reads at most <see cref="MaxBodyBytes"/>. Answers 413 (or 400 when the client broke off) and returns null otherwise.</summary>
-    private static async Task<byte[]?> ReadBodyAsync(HttpContext context)
+    /// <summary>Exactly <c>image/png</c> or <c>image/webp</c>, no parameters: what an image upload is.</summary>
+    private static bool IsImage(string? contentType) =>
+        MediaTypeHeaderValue.TryParse(contentType, out var parsed)
+        && parsed.Parameters.Count == 0
+        && (parsed.MediaType.Equals("image/png", StringComparison.OrdinalIgnoreCase) || parsed.MediaType.Equals("image/webp", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Reads at most <paramref name="max"/> bytes. Answers 413 (or 400 when the client broke off) and returns null otherwise.</summary>
+    private static async Task<byte[]?> ReadBodyAsync(HttpContext context, int max = MaxBodyBytes)
     {
         var request = context.Request;
-        if (request.ContentLength > MaxBodyBytes)
+        if (request.ContentLength > max)
         {
             context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
             return null;
@@ -315,12 +425,12 @@ public static class EditorApi
         try
         {
             using var buffer = new MemoryStream();
-            var chunk = new byte[1024];
+            var chunk = new byte[8192];
             int read;
             // Chunked bodies have no Content-Length, so the cap is enforced on what actually arrives.
             while ((read = await request.Body.ReadAsync(chunk, context.RequestAborted)) > 0)
             {
-                if (buffer.Length + read > MaxBodyBytes)
+                if (buffer.Length + read > max)
                 {
                     context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
                     return null;
@@ -342,7 +452,7 @@ public static class EditorApi
     {
         try
         {
-            return JsonSerializer.Deserialize<T>(body, ContractJson.Options);
+            return JsonSerializer.Deserialize<T>(body, BoundedJson);
         }
         catch (Exception e) when (e is JsonException or NotSupportedException)
         {
@@ -350,10 +460,10 @@ public static class EditorApi
         }
     }
 
-    private static async Task WriteJsonAsync<T>(HttpContext context, T value)
+    private static async Task WriteJsonAsync<T>(HttpContext context, T value, int status = StatusCodes.Status200OK)
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(value, ContractJson.Options);
-        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.StatusCode = status;
         context.Response.ContentType = "application/json; charset=utf-8";
         context.Response.ContentLength = bytes.Length;
         await context.Response.Body.WriteAsync(bytes, context.RequestAborted);
