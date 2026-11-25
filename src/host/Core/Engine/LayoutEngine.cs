@@ -12,19 +12,34 @@ public sealed class LayoutEngine
     private readonly Dictionary<string, Widget> _widgets = new();
     private readonly IReadOnlyDictionary<string, GameOutput> _outputs;
     private readonly Dictionary<string, int> _positions = new();
+    private readonly Dictionary<string, BehaviorState> _behaviors = new();
+    private readonly TimeProvider _time;
     private readonly object _gate = new();
 
     // The profile has passed ProfileCheck: widget ids are unique and every referenced action exists.
-    internal LayoutEngine(Layout layout, IReadOnlyDictionary<string, GameOutput> outputs)
+    internal LayoutEngine(Layout layout, IReadOnlyDictionary<string, GameOutput> outputs, TimeProvider time)
     {
         _layout = layout;
         _outputs = outputs;
+        _time = time;
         foreach (var widget in layout.Widgets)
         {
             _widgets.Add(widget.Id, widget);
             if (widget is SwitchWidget)
             {
                 _positions[widget.Id] = 0;
+            }
+
+            BehaviorState? behavior = widget switch
+            {
+                SwitchWidget { Behavior: SwitchBehavior.Headlights } => new HeadlightsState(),
+                SwitchWidget { Behavior: SwitchBehavior.Wipers } => new WipersState(),
+                DualActionWidget { Behavior: DualActionBehavior.EngineStartStop } => new EngineStartStopState(),
+                _ => null,
+            };
+            if (behavior is not null)
+            {
+                _behaviors.Add(widget.Id, behavior);
             }
         }
     }
@@ -38,6 +53,11 @@ public sealed class LayoutEngine
             foreach (var id in _positions.Keys.ToList())
             {
                 _positions[id] = 0;
+            }
+
+            foreach (var behavior in _behaviors.Values)
+            {
+                behavior.Reset();
             }
         }
     }
@@ -96,7 +116,7 @@ public sealed class LayoutEngine
         lock (_gate)
         {
             // Validity first, then listening, then commit any position change.
-            var plan = Resolve(widget, gesture, select);
+            var plan = Resolve(widget, gesture, select, snapshot);
             if (plan is null)
             {
                 return HandleResult.Invalid;
@@ -112,7 +132,64 @@ public sealed class LayoutEngine
                 changed = _positions[widget.Id] != position;
                 _positions[widget.Id] = position;
             }
+            if (plan.Commit is { } commit)
+            {
+                changed |= commit(_time.GetUtcNow());
+            }
             return new HandleResult(HandleOutcome.Accepted, plan.Outputs, changed);
+        }
+    }
+
+    /// <summary>
+    /// Applies what changed without a gesture, at the clock's current time: the headlight and wiper inference and the end of their
+    /// pauses, the amber timeout, a running engine clearing amber. CPU only. True when anything the phone shows changed.
+    /// </summary>
+    public bool Observe(TelemetrySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        lock (_gate)
+        {
+            if (_behaviors.Count == 0)
+            {
+                return false;
+            }
+
+            var now = _time.GetUtcNow();
+            var changed = false;
+            foreach (var (id, behavior) in _behaviors)
+            {
+                var hasPosition = _positions.TryGetValue(id, out var position);
+                if (behavior.Observe(snapshot, now, ref position))
+                {
+                    if (hasPosition)
+                    {
+                        _positions[id] = position;
+                    }
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+    }
+
+    /// <summary>The earliest time at which <see cref="Observe"/> changes something without new telemetry (an amber deadline, the end of an inference pause), or null.</summary>
+    public DateTimeOffset? NextDeadline
+    {
+        get
+        {
+            lock (_gate)
+            {
+                DateTimeOffset? next = null;
+                foreach (var behavior in _behaviors.Values)
+                {
+                    if (behavior.Deadline is { } deadline && (next is null || deadline < next))
+                    {
+                        next = deadline;
+                    }
+                }
+                return next;
+            }
         }
     }
 
@@ -149,6 +226,14 @@ public sealed class LayoutEngine
                     any = true;
                 }
 
+                if (snapshot.Available && _behaviors.TryGetValue(widget.Id, out var behavior) && behavior is EngineStartStopState engine)
+                {
+                    var shown = engine.Project(snapshot);
+                    state.Lit = shown.Lit;
+                    state.Led = shown.Led;
+                    any = true;
+                }
+
                 if (any)
                 {
                     states.Add(widget.Id, state);
@@ -164,14 +249,10 @@ public sealed class LayoutEngine
         return new StatusMessage { Telemetry = snapshot.Available, GameListening = snapshot.GameListening };
     }
 
-    private sealed record Step(IReadOnlyList<GameOutput> Outputs, int? NewPosition);
-
-    private static readonly Step NoOp = new([], null);
-
     // Must be called under _gate (reads commanded positions). Null means invalid.
-    private Step? Resolve(Widget widget, Gesture? gesture, int? select)
+    private GesturePlan? Resolve(Widget widget, Gesture? gesture, int? select, TelemetrySnapshot snapshot)
     {
-        Step One(string actionId, int? position = null) => new([_outputs[actionId]], position);
+        GesturePlan One(string actionId, int? position = null) => new([_outputs[actionId]], position);
 
         switch (widget)
         {
@@ -206,15 +287,28 @@ public sealed class LayoutEngine
                         target = Math.Clamp(current + (gesture == Gesture.Next ? 1 : -1), 0, count - 1);
                         if (target == current)
                         {
-                            return NoOp;
+                            return GesturePlan.None;
                         }
                     }
                     else
                     {
                         return null;
                     }
+                    if (_behaviors.TryGetValue(sw.Id, out var behavior) && behavior is HeadlightsState headlights)
+                    {
+                        var outputs = HeadlightsState.Outputs(sw, target, snapshot, _outputs);
+                        return new GesturePlan(outputs, target, now => { headlights.Commanded(target, now); return false; });
+                    }
+                    if (behavior is WipersState wipers)
+                    {
+                        return new GesturePlan([_outputs[sw.Positions[target].Action!]], target, now => { wipers.Commanded(target, now); return false; });
+                    }
                     return One(sw.Positions[target].Action!, target);
                 }
+
+            case DualActionWidget { Behavior: DualActionBehavior.EngineStartStop } dual
+                when gesture is Gesture.Tap or Gesture.Hold:
+                return ((EngineStartStopState)_behaviors[dual.Id]).Plan(gesture.Value, dual, snapshot, _outputs);
 
             case DualActionWidget dual when gesture == Gesture.Tap && dual.Tap is not null:
                 return One(dual.Tap);

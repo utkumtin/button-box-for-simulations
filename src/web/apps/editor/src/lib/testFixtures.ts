@@ -37,6 +37,8 @@ export const CATALOG: Catalog = {
     { id: 'wipers-auto', name: 'Wipers auto', output: { kind: 'scs', input: 'wipers1' } },
     { id: 'wipers-low', name: 'Wipers low', output: { kind: 'scs', input: 'wipers2' } },
     { id: 'wipers-fast', name: 'Wipers fast', output: { kind: 'scs', input: 'wipers3' } },
+    { id: 'high-beam', name: 'High beam', output: { kind: 'scs', input: 'lighthbeam' } },
+    { id: 'ignition-off', name: 'Ignition off', output: { kind: 'scs', input: 'ignitionoff' } },
   ],
 };
 

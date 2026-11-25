@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import type { FirewallState, SettingsStatus } from '@bbs/protocol';
-import { api, ApiError } from './api';
+import type { FirewallState, ScsGame, ScsPluginStatus, SettingsStatus } from '@bbs/protocol';
+import { api, ApiError, ProblemsError } from './api';
+import { gameRow, installMessage, NOT_INCLUDED_TEXT, type InstallMessage } from './lib/scsPlugin';
 import { groupFingerprint } from './lib/fingerprint';
 import { usePoll } from './usePoll';
 import './pages.css';
@@ -84,6 +85,60 @@ function RegenerateDialog({ onClose, onDone }: { onClose: () => void; onDone: ()
   );
 }
 
+/** Per game state and Install/Update (decisions §11 Phase 5, §12). Buttons wait while a request runs. */
+function ScsPanel({ plugin }: { plugin: ScsPluginStatus | null }) {
+  const [busy, setBusy] = useState<ScsGame | null>(null);
+  const [message, setMessage] = useState<(InstallMessage & { game: ScsGame }) | null>(null);
+
+  const install = async (game: ScsGame) => {
+    setBusy(game);
+    setMessage(null);
+    try {
+      await api.installScsPlugin(game);
+      setMessage({ game, ...installMessage(game, 204) });
+    } catch (e) {
+      const status = e instanceof ApiError ? e.status : 0;
+      setMessage({ game, ...installMessage(game, status, e instanceof ProblemsError ? e.problems : []) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="settings-panel">
+      <h3>SCS plugin</h3>
+      {plugin === null ? (
+        <p className="muted">Loading…</p>
+      ) : !plugin.included ? (
+        <p className="muted">{NOT_INCLUDED_TEXT}</p>
+      ) : (
+        plugin.games.map((status) => {
+          const row = gameRow(status);
+          return (
+            <div key={row.game} className="settings-game">
+              <p>
+                <strong>{row.name}</strong>: {row.state}
+                {row.connected && ' – Connected'}
+              </p>
+              {row.installDir && <p className="muted">{row.installDir}</p>}
+              {row.button && (
+                <button type="button" className="btn" disabled={busy !== null} onClick={() => void install(row.game)}>
+                  {row.button}
+                </button>
+              )}
+              {message?.game === row.game && (
+                <p className={message.ok ? undefined : 'field-error'} role={message.ok ? 'status' : 'alert'}>
+                  {message.text}
+                </p>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 /** Status panels (decisions §11, Phase 4 scope). */
 export function SettingsPage() {
   const [settings, setSettings] = useState<SettingsStatus | null>(null);
@@ -138,10 +193,7 @@ export function SettingsPage() {
         <h3>vJoy</h3>
         <p className="muted">Available in a later version.</p>
       </div>
-      <div className="settings-panel">
-        <h3>SCS plugin</h3>
-        <p className="muted">Available in a later version.</p>
-      </div>
+      <ScsPanel plugin={settings?.scsPlugin ?? null} />
       <div className="settings-panel">
         <h3>Updates</h3>
         <p className="muted">Available in a later version.</p>

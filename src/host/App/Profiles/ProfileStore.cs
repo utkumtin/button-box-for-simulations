@@ -39,19 +39,22 @@ public sealed class ProfileStore
     private readonly ProfileGate _validation;
     private readonly CatalogStore _catalogs;
     private readonly GameSession _session;
+    private readonly TimeProvider _time;
     private readonly Action<string, byte[]> _write;
     private readonly List<string> _problems = [];
     private readonly Dictionary<string, CacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
     private string? _activeId;
 
-    public ProfileStore(string dataDir, ProfileGate gate, CatalogStore catalogs, GameSession session)
-        : this(dataDir, gate, catalogs, session, (path, bytes) => AtomicFile.WriteAllBytes(path, bytes))
+    /// <param name="time">The clock of the engines this store builds. It must be the clock of <paramref name="session"/> (their deadlines are absolute times); null is the system clock.</param>
+    public ProfileStore(string dataDir, ProfileGate gate, CatalogStore catalogs, GameSession session, TimeProvider? time = null)
+        : this(dataDir, gate, catalogs, session, (path, bytes) => AtomicFile.WriteAllBytes(path, bytes), time)
     {
     }
 
     /// <param name="write">Test seam: how a file is written (default: <see cref="AtomicFile"/>). It may throw <see cref="IOException"/>.</param>
-    internal ProfileStore(string dataDir, ProfileGate gate, CatalogStore catalogs, GameSession session, Action<string, byte[]> write)
+    internal ProfileStore(string dataDir, ProfileGate gate, CatalogStore catalogs, GameSession session, Action<string, byte[]> write, TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
         ArgumentException.ThrowIfNullOrEmpty(dataDir);
         ArgumentNullException.ThrowIfNull(gate);
         ArgumentNullException.ThrowIfNull(catalogs);
@@ -483,7 +486,7 @@ public sealed class ProfileStore
 
     private ProfileEngine BuildEngine(Profile profile) =>
         _catalogs.TryGet(profile.Game, out var catalog)
-            ? new ProfileEngine(profile, catalog)
+            ? new ProfileEngine(profile, catalog, _time)
             : throw new InvalidOperationException("The profile passed the gate, so its catalog exists.");
 
     private bool TryWrite(string path, byte[] bytes)

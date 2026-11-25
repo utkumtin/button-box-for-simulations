@@ -1,7 +1,7 @@
 import type { Widget } from '@bbs/protocol';
 import type { GestureOut } from '@bbs/widgets';
 import { describe, expect, it } from 'vitest';
-import { testAction } from './testAction';
+import { testAction, testHint } from './testAction';
 
 const cell = { col: 0, row: 0, colSpan: 1, rowSpan: 1 };
 const gesture = (widgetId: string, g: 'tap' | 'hold' | 'minus' | 'plus' | 'previous' | 'next'): GestureOut => ({
@@ -94,5 +94,14 @@ describe('testAction', () => {
 
   it('sends nothing for an empty action', () => {
     expect(testAction({ ...toggle, action: '' }, gesture('t', 'tap'), {}).actionId).toBeNull();
+  });
+});
+
+describe('testHint', () => {
+  // Decisions section 10: ETS2/ATS drop test presses while the game is not listening.
+  it('is shown for ETS2 and ATS only', () => {
+    expect(testHint('ets2')).toMatch(/running, focused and not paused/);
+    expect(testHint('ats')).toBe(testHint('ets2'));
+    expect(testHint('acc')).toBeNull();
   });
 });

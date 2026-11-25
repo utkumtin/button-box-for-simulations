@@ -1,5 +1,6 @@
 import type { Catalog, DeviceTemplate, Layout, Profile, Widget } from '@bbs/protocol';
 import { fits } from '@bbs/widgets';
+import { behaviorShapeProblem } from './behavior';
 import {
   cellsOverlap,
   describeWidget,
@@ -142,6 +143,11 @@ export function layoutProblems(
       if (w.holdMode === 'starterTakeover') {
         add(`${name} uses starter takeover, which is not available yet.`, w);
       }
+    }
+
+    const shape = behaviorShapeProblem(w, catalog.game);
+    if (shape) {
+      add(`${name} ${shape}`, w);
     }
 
     if (assets) {

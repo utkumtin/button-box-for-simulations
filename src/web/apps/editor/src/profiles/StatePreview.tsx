@@ -1,4 +1,5 @@
 import type { Led, Widget, WidgetState } from '@bbs/protocol';
+import { litLabel, previewControls } from '../lib/previewControls';
 
 /**
  * Preview controls (decisions §11): what the selected widget looks like lit, with an LED, or at a switch position,
@@ -17,9 +18,10 @@ export function StatePreview({
   dim: boolean;
   onDim: (dim: boolean) => void;
 }) {
-  const hasLit = widget?.state?.lit !== undefined;
-  const hasLed = widget?.state?.led !== undefined;
-  const isSwitch = widget?.type === 'switch';
+  const controls = widget ? previewControls(widget) : null;
+  const hasLit = controls?.lit === true;
+  const hasLed = controls?.led === true;
+  const isSwitch = controls?.position === true;
   return (
     <div className="pe-preview-bar">
       <strong>Preview</strong>
@@ -30,7 +32,7 @@ export function StatePreview({
       {widget && hasLit && (
         <label className="pe-check">
           <input type="checkbox" checked={state.lit === true} onChange={(e) => onState({ ...state, lit: e.target.checked })} />
-          Lit
+          {litLabel(widget)}
         </label>
       )}
       {widget && hasLed && (

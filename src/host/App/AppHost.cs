@@ -5,6 +5,8 @@ using ButtonBox.App.Profiles;
 using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
 using ButtonBox.Discovery;
+using ButtonBox.Output.Scs;
+using ButtonBox.Output.Scs.Install;
 using ButtonBox.Security;
 using ButtonBox.Simulator;
 
@@ -42,6 +44,21 @@ public sealed class AppHostOptions
 
     /// <summary>Test seam, see <see cref="LanHostOptions.BindAddress"/>.</summary>
     public Func<LanAddress, IPAddress>? BindAddress { get; init; }
+
+    /// <summary>The <c>--simulator</c> flag: every profile runs on the Simulator (decisions §3 "Backend selection").</summary>
+    public bool UseSimulator { get; init; }
+
+    // The SCS pieces are given by Program.Main only. Without the locator and the bridge options the app runs on the Simulator,
+    // whatever UseSimulator says, so a test can never reach the real pipe or the real Steam setup by accident.
+
+    /// <summary>Finds the installed games. Production: <c>new SteamGameLocator()</c>.</summary>
+    public IScsGameLocator? ScsLocator { get; init; }
+
+    /// <summary>Pipe name and timings of the bridge. Production: the defaults (the real pipe name).</summary>
+    public ScsBridgeOptions? ScsBridgeOptions { get; init; }
+
+    /// <summary>Full path of the plugin DLL that ships with the app; null or a missing file means "not included in this build".</summary>
+    public string? ScsPluginDll { get; init; }
 }
 
 /// <summary>Why the LAN side cannot start. Nothing is ever replaced by an empty or new file.</summary>
@@ -64,6 +81,7 @@ public sealed class AppHost : IAsyncDisposable
 {
     private readonly AppHostOptions _o;
     private readonly string? _mdnsName;
+    private readonly ScsBridge? _bridge;
     private readonly object _gate = new();
     private LanHost? _lan;
     private Task _startTask = Task.CompletedTask;
@@ -71,8 +89,9 @@ public sealed class AppHost : IAsyncDisposable
     private bool _disposed;
 
     private AppHost(
-        AppHostOptions options, string? mdnsName, DeviceRegistry? registry, TemplateStore templates, SetupProblem problem, ScsSimulator simulator,
-        CatalogStore catalogs, AssetLibrary assets, ProfileStore profiles, GameSession session, IReadOnlyList<string> firstRunProblems)
+        AppHostOptions options, string? mdnsName, DeviceRegistry? registry, TemplateStore templates, SetupProblem problem, ScsSimulator? simulator,
+        ScsBridge? bridge, IStateProvider state, IScsPluginInstaller? installer, CatalogStore catalogs, AssetLibrary assets, ProfileStore profiles,
+        GameSession session, IReadOnlyList<string> firstRunProblems)
     {
         _o = options;
         _mdnsName = mdnsName;
@@ -81,6 +100,9 @@ public sealed class AppHost : IAsyncDisposable
         Setup = problem;
         Secret = EditorSecret.Create();
         Simulator = simulator;
+        _bridge = bridge;
+        State = state;
+        ScsInstaller = installer;
         Catalogs = catalogs;
         Assets = assets;
         Profiles = profiles;
@@ -100,8 +122,17 @@ public sealed class AppHost : IAsyncDisposable
 
     public SetupProblem Setup { get; }
 
-    /// <summary>Until Phase 5 the Simulator (ETS2 model) is the app's only backend and state provider (decisions §3).</summary>
-    public ScsSimulator Simulator { get; }
+    /// <summary>The Simulator, only when it is the backend (<c>--simulator</c>, or no SCS pieces were given); null otherwise (decisions §3).</summary>
+    public ScsSimulator? Simulator { get; }
+
+    /// <summary>The state provider the session reads: the Simulator, or the router over the SCS bridge. The editor's telemetry screen reads it too.</summary>
+    public IStateProvider State { get; }
+
+    /// <summary>The SCS link state (Settings panel); null while there is no bridge (simulator mode).</summary>
+    public ScsBridgeStatus? ScsLink => _bridge?.Status;
+
+    /// <summary>Installs the plugin into the games; null when no locator was given. Does file I/O: never call it on the UI thread.</summary>
+    public IScsPluginInstaller? ScsInstaller { get; }
 
     /// <summary>The action catalogs that ship with the app (decisions §4).</summary>
     public CatalogStore Catalogs { get; }
@@ -115,7 +146,7 @@ public sealed class AppHost : IAsyncDisposable
     /// <summary>Why the first-run seed did not complete; empty when it was not needed or succeeded.</summary>
     public IReadOnlyList<string> FirstRunProblems { get; }
 
-    /// <summary>Gestures in, outputs to the <see cref="Simulator"/>, telemetry out to every phone.</summary>
+    /// <summary>Gestures in, outputs to the backend (the SCS bridge or the Simulator), telemetry out to every phone.</summary>
     public GameSession Session { get; }
 
     /// <summary>The LAN side once <see cref="StartAsync"/> created it.</summary>
@@ -177,15 +208,36 @@ public sealed class AppHost : IAsyncDisposable
         var templates = new TemplateStore(options.ShippedTemplatesDir, Path.Combine(options.DataDir, "templates"));
         var catalogs = new CatalogStore(options.ShippedCatalogsDir);
         var assets = new AssetLibrary(Path.Combine(options.DataDir, "assets"));
-        var simulator = new ScsSimulator(options.Time);
+        var installer = options.ScsLocator is { } found ? new ScsPluginInstaller(new PluginInstaller(found, options.ScsPluginDll)) : null;
+
+        // One clock for the engines, the session and the Simulator: a layout engine's next deadline is an absolute time.
+        ScsSimulator? simulator = null;
+        ScsBridge? bridge = null;
+        IOutputBackend backend;
+        IStateProvider state;
+        GameSession? session = null;
+        if (options.UseSimulator || options.ScsLocator is null || options.ScsBridgeOptions is null)
+        {
+            simulator = new ScsSimulator(options.Time);
+            backend = simulator;
+            state = simulator;
+        }
+        else
+        {
+            bridge = new ScsBridge(options.ScsLocator, options.ScsBridgeOptions, options.Time);
+            var router = new GameBackend(() => session?.Engine?.Game, bridge, bridge);
+            backend = router;
+            state = router;
+        }
 
         // The store publishes to the session and the session starts without a profile; the active engine is published once the
         // store (and the first-run seed) are ready. No phone is connected yet.
-        var session = new GameSession(null, simulator, simulator);
-        var profiles = new ProfileStore(options.DataDir, new ProfileGate(catalogs, templates, assets), catalogs, session);
+        session = new GameSession(null, backend, state, options.Time);
+        var profiles = new ProfileStore(options.DataDir, new ProfileGate(catalogs, templates, assets), catalogs, session, options.Time);
         var firstRun = FirstRun.Run(options.DataDir, assets, profiles, DemoContent.ReadSeed());
         session.Publish(profiles.CreateActiveEngine(), keepSwitchPositions: false);
-        return new AppHost(options, settings.MdnsName, registry, templates, problem, simulator, catalogs, assets, profiles, session, firstRun);
+        bridge?.Start(); // binds no port; connects to the game's pipe whenever one serves it
+        return new AppHost(options, settings.MdnsName, registry, templates, problem, simulator, bridge, state, installer, catalogs, assets, profiles, session, firstRun);
     }
 
     /// <summary>
@@ -234,6 +286,10 @@ public sealed class AppHost : IAsyncDisposable
         }
 
         await Session.DisposeAsync(); // after the phones are gone
+        if (_bridge is not null)
+        {
+            await _bridge.DisposeAsync(); // after the session: nothing presses through it any more
+        }
     }
 
     private async Task RunStartAsync()

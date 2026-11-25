@@ -1,5 +1,6 @@
 import type { DeviceTemplate, Grid, GridCell, Layout, Profile, Widget } from '@bbs/protocol';
 import { fits, minimumSpan, type Span, type WidgetType } from '@bbs/widgets';
+import { behaviorLockViolation } from './behavior';
 import { newWidgetId } from './widgetIds';
 
 /**
@@ -334,6 +335,7 @@ export function duplicateWidget(
 /**
  * Changes a widget's properties. `change` receives a copy of the widget and returns the new one; id, type and cell are
  * always kept (use move and resize for the cell). Empty optional strings are removed, never written as "".
+ * A widget with a behaviour keeps its behaviour, actions and position count (behavior.ts); other edits go through.
  */
 export function updateWidget(
   profile: Profile,
@@ -348,6 +350,10 @@ export function updateWidget(
     }
     const changed = change(structuredClone(widget));
     const kept = { ...changed, id: widget.id, type: widget.type, cell: widget.cell } as Widget;
+    const locked = behaviorLockViolation(widget, kept);
+    if (locked) {
+      return locked;
+    }
     return replaceWidget(layout, normalizeWidget(kept));
   });
 }
@@ -423,6 +429,7 @@ export function normalizeWidget(widget: Widget): Widget {
         tap: text(widget.tap),
         hold: text(widget.hold),
         holdMode: widget.holdMode,
+        behavior: widget.behavior,
         look: normalizeLook(widget.look),
       }) as Widget;
     case 'switch': {
@@ -440,6 +447,7 @@ export function normalizeWidget(widget: Widget): Widget {
           defined({ label: text(p.label), angle: p.angle, action: text(p.action), icon: text(p.icon) }),
         ),
         cycle: text(widget.cycle),
+        behavior: widget.behavior,
         rotary: layers && Object.keys(layers).length > 0 ? layers : undefined,
       }) as Widget;
     }

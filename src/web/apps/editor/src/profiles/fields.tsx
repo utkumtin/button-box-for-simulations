@@ -174,17 +174,20 @@ export function ActionSelect({
   onChange,
   label,
   noneLabel,
+  disabled,
 }: {
   catalog: Catalog;
   value: string | undefined;
   onChange: (id: string) => void;
   label: string;
+  /** Behaviour widgets show their fixed actions without offering a change. */
+  disabled?: boolean;
   /** Present for optional actions: the entry that clears it. Required actions show "Choose an action..." instead. */
   noneLabel?: string;
 }) {
   const unknown = value !== undefined && value !== '' && findAction(catalog, value) === undefined;
   return (
-    <select className="input" aria-label={label} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+    <select className="input" aria-label={label} disabled={disabled} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
       <option value="">{noneLabel ?? 'Choose an action...'}</option>
       {unknown && <option value={value}>Unknown action ({value})</option>}
       {catalog.actions.map((a) => (

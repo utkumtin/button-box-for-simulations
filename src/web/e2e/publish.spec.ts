@@ -95,10 +95,14 @@ test('switching the active profile switches the phone; a profile without its lay
   await expect(box.page.getByText('No layout for this device in the active profile.')).toHaveCount(0);
 });
 
-test('a Save keeps a switch where it is; switching the profile away and back resets it to position 0', async ({ open, editorApi }) => {
+test('a Save keeps a switch where it is; switching the profile away and back resets it to position 0', async ({ open, editorApi, control }) => {
+  // This is about the commanded position. With telemetry the wiper knob follows the game's wipers (decisions §5.3), which an
+  // earlier spec may leave running: stop them, then turn telemetry off. The control fixture turns it back on afterwards.
   const box = await open();
   const wipers = box.widget('wipers');
+  await control.game('wipers0');
   await expect(wipers).toHaveAttribute('data-position', '0');
+  await control.setState({ telemetry: false, gameListening: true, engineNeverStarts: false });
   await box.tap('wipers', 0.75);
   await expect(wipers).toHaveAttribute('data-position', '1');
 

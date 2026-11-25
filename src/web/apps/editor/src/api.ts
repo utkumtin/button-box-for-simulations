@@ -12,6 +12,8 @@ import type {
   ProfileList,
   RegenerateCaRequest,
   RenameDeviceRequest,
+  ScsGame,
+  ScsInstallRequest,
   SettingsStatus,
   StartPairingRequest,
   TelemetryView,
@@ -29,11 +31,11 @@ export class ApiError extends Error {
   }
 }
 
-/** 422: the host refused a profile or an image and says why. The sentences carry no secrets, so they are kept. */
+/** 422 (or 409 for the plugin install): the host refused a request and says why. The sentences carry no secrets, so they are kept. */
 export class ProblemsError extends ApiError {
   readonly problems: string[];
-  constructor(problems: string[]) {
-    super(422);
+  constructor(problems: string[], status = 422) {
+    super(status);
     this.name = 'ProblemsError';
     this.problems = problems;
   }
@@ -41,11 +43,11 @@ export class ProblemsError extends ApiError {
 
 const BASE = '/editor/api';
 
-async function failure(res: Response): Promise<ApiError> {
-  if (res.status === 422) {
+async function failure(res: Response, problemStatuses: readonly number[] = [422]): Promise<ApiError> {
+  if (problemStatuses.includes(res.status)) {
     try {
       const body = (await res.json()) as ProblemList;
-      if (Array.isArray(body.problems)) return new ProblemsError(body.problems.map(String));
+      if (Array.isArray(body.problems)) return new ProblemsError(body.problems.map(String), res.status);
     } catch {
       // fall through to the plain error
     }
@@ -123,6 +125,15 @@ export const api = {
   telemetry: () => getJson<TelemetryView>('/telemetry'),
   testPress: (actionId: string) => postNoContent('/test', { actionId } satisfies TestPressRequest),
   settings: () => getJson<SettingsStatus>('/settings'),
+  /** 204 installed; 404 game not found; 409 game running (ProblemsError); 422 write or verify failed (ProblemsError); 503 not included. */
+  installScsPlugin: async (game: ScsGame): Promise<void> => {
+    const res = await fetch(`${BASE}/settings/scs-plugin/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ game } satisfies ScsInstallRequest),
+    });
+    if (!res.ok) throw await failure(res, [409, 422]);
+  },
   regenerateCa: () => postNoContent('/settings/regenerate-ca', { confirm: 'REGENERATE' } satisfies RegenerateCaRequest),
 };
 

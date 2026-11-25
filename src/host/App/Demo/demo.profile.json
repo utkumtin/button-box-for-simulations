@@ -25,13 +25,10 @@
           "tap": "ignition-on",
           "hold": "starter",
           "holdMode": "fire",
+          "behavior": "engineStartStop",
           "look": {
             "mode": "images",
             "image": "e744710295a932027d7feef53bfc06783e4f11eb5e89145f846ea07896c52572"
-          },
-          "state": {
-            "lit": "truck.electric.enabled",
-            "led": "truck.engine.enabled"
           }
         },
         {
@@ -59,8 +56,14 @@
               "icon": "car-light-dimmed",
               "angle": 30,
               "action": "light-on"
+            },
+            {
+              "icon": "car-light-high",
+              "angle": 60,
+              "action": "light-on"
             }
           ],
+          "behavior": "headlights",
           "rotary": {
             "base": {
               "asset": "02abf8a01862694028bb6eed91cde12ab712b3e24337ef0905cbe4bcc539bff9",
@@ -104,6 +107,7 @@
               "action": "wipers-fast"
             }
           ],
+          "behavior": "wipers",
           "rotary": {
             "base": {
               "asset": "02abf8a01862694028bb6eed91cde12ab712b3e24337ef0905cbe4bcc539bff9",

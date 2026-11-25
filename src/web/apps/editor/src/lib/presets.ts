@@ -2,10 +2,11 @@ import type { Catalog } from '@bbs/protocol';
 import type { WidgetDraft } from './layoutOps';
 
 /**
- * Presets (decisions §11, §5.1-5.3): ready-made widgets with their looks and the actions available today. They exist
- * only for ETS2 and ATS catalogs and return null when the catalog lacks one of the actions. Values come from the
- * Phase 3 demo profile. Images are used only when their asset ids are in the library (`assets`); otherwise the widget
- * has no image and is drawn in code. The editor does not offer `cycle` or `starterTakeover` before their phases.
+ * Presets (decisions §11, §5.1-5.3): ready-made widgets with their looks, actions and Phase 5 `behavior`. They exist
+ * only for ETS2 and ATS catalogs and return null when the catalog lacks one of the actions (headlights also need
+ * `high-beam`, the engine button `ignition-off`). Images are used only when their asset ids are in the library
+ * (`assets`); otherwise the widget has no image and is drawn in code. The editor does not offer `cycle` or
+ * `starterTakeover` before their phases.
  * Each returns a draft; `addWidget` assigns the id and the cell.
  */
 
@@ -31,9 +32,9 @@ function rotary(assets: ReadonlySet<string>): Pick<SwitchDraft, 'rotary'> {
   return { rotary: { base: { asset: ROTARY_BASE, scale: 1 }, knob: { asset: ROTARY_KNOB, scale: 0.55 } } };
 }
 
-/** OFF / AUTO / LOW. HIGH comes with the high-beam logic of Phase 5 (decisions §5.1). */
+/** OFF / AUTO / LOW / HIGH (decisions §5.1). LOW and HIGH both send `light-on`; the host adds the high-beam logic. */
 export function headlightPreset(catalog: Catalog, assets: ReadonlySet<string>): WidgetDraft | null {
-  if (!available(catalog, ['light-off', 'light-park', 'light-on'])) {
+  if (!available(catalog, ['light-off', 'light-park', 'light-on', 'high-beam'])) {
     return null;
   }
   return {
@@ -43,7 +44,9 @@ export function headlightPreset(catalog: Catalog, assets: ReadonlySet<string>): 
       { label: 'OFF', angle: -30, action: 'light-off' },
       { label: 'AUTO', angle: 0, action: 'light-park' },
       { icon: 'car-light-dimmed', angle: 30, action: 'light-on' },
+      { icon: 'car-light-high', angle: 60, action: 'light-on' },
     ],
+    behavior: 'headlights',
     ...rotary(assets),
   };
 }
@@ -61,13 +64,14 @@ export function wiperPreset(catalog: Catalog, assets: ReadonlySet<string>): Widg
       { label: 'LOW', angle: 30, action: 'wipers-low' },
       { label: 'FAST', angle: 60, action: 'wipers-fast' },
     ],
+    behavior: 'wipers',
     ...rotary(assets),
   };
 }
 
-/** Generic Phase 3 behaviour (tap ignition on, hold starter); the full §5.2 behaviour comes in Phase 5. */
+/** Engine start-stop (decisions §5.2): lit and LED come from the behaviour, so the widget has no state binding. */
 export function engineButtonPreset(catalog: Catalog, assets: ReadonlySet<string>): WidgetDraft | null {
-  if (!available(catalog, ['ignition-on', 'starter'])) {
+  if (!available(catalog, ['ignition-on', 'starter', 'ignition-off'])) {
     return null;
   }
   const draft: DualDraft = {
@@ -76,7 +80,7 @@ export function engineButtonPreset(catalog: Catalog, assets: ReadonlySet<string>
     tap: 'ignition-on',
     hold: 'starter',
     holdMode: 'fire',
-    state: { lit: 'truck.electric.enabled', led: 'truck.engine.enabled' },
+    behavior: 'engineStartStop',
   };
   if (assets.has(ENGINE_IMAGE)) {
     draft.look = { mode: 'images', image: ENGINE_IMAGE };

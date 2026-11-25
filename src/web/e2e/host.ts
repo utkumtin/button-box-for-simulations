@@ -50,6 +50,14 @@ export class Control {
     return this.call('GET', '/received');
   }
 
+  /**
+   * One SCS input pressed on the game's own keyboard binding: it reaches the Simulator directly, not through the session or the output
+   * queue, so only telemetry tells the host. The Simulator still lists it in `received()`, like every output it gets.
+   */
+  game(input: string): Promise<void> {
+    return this.call('POST', '/game', { input });
+  }
+
   /** Closes every phone connection on the host side. */
   drop(): Promise<void> {
     return this.call('POST', '/drop');
@@ -137,6 +145,12 @@ export class EditorApi {
 
   async remove(id: string): Promise<void> {
     await this.call('POST', `/profiles/${encodeURIComponent(id)}/delete`);
+  }
+
+  /** The live telemetry fields by name (empty while the Simulator has no telemetry). */
+  async telemetry(): Promise<Record<string, number>> {
+    const view = (await (await this.call('GET', '/telemetry')).json()) as { fields: { name: string; value: number }[] };
+    return Object.fromEntries(view.fields.map((f) => [f.name, f.value]));
   }
 
   /** The active profile's id; the host always has one after the first-run seed. */

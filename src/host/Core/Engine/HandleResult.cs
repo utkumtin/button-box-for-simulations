@@ -15,7 +15,7 @@ public enum HandleOutcome
 
 /// <param name="Outcome">What happened.</param>
 /// <param name="Outputs">Game outputs to send, in order. Empty unless <paramref name="Outcome"/> is Accepted.</param>
-/// <param name="StateChanged">True when the projected state changed (a switch's commanded position moved).</param>
+/// <param name="StateChanged">True when anything the phone shows may have changed (a switch's commanded position moved, amber cleared, ...).</param>
 public sealed record HandleResult(HandleOutcome Outcome, IReadOnlyList<GameOutput> Outputs, bool StateChanged)
 {
     internal static HandleResult Invalid { get; } = new(HandleOutcome.Invalid, [], false);

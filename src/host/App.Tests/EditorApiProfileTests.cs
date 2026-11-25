@@ -10,6 +10,7 @@ using ButtonBox.App.Lan;
 using ButtonBox.App.Profiles;
 using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
+using ButtonBox.Output.Scs;
 using ButtonBox.Simulator;
 using Xunit;
 
@@ -52,6 +53,9 @@ internal sealed class Api4Rig : IAsyncDisposable
 
     public Func<Task<CaRegenerationResult>>? Regenerate { get; set; }
 
+    /// <summary>What the bridge reports to the settings; null is "no bridge" (simulator mode).</summary>
+    public ScsBridgeStatus? Link { get; set; }
+
     public sealed class EditorSecret_
     {
         private readonly ButtonBox.Security.EditorSecret _inner = ButtonBox.Security.EditorSecret.Create();
@@ -61,7 +65,7 @@ internal sealed class Api4Rig : IAsyncDisposable
         public ButtonBox.Security.EditorSecret Inner => _inner;
     }
 
-    public static async Task<Api4Rig> StartAsync(bool phone = false, IOutputBackend? backend = null, IStateProvider? state = null, bool wired = true, IFirewallStatus? firewall = null)
+    public static async Task<Api4Rig> StartAsync(bool phone = false, IOutputBackend? backend = null, IStateProvider? state = null, bool wired = true, IFirewallStatus? firewall = null, IScsPluginInstaller? scsInstaller = null)
     {
         var rig = new Api4Rig();
         var catalogs = new CatalogStore(Path.Combine(AppContext.BaseDirectory, "catalog"));
@@ -101,6 +105,8 @@ internal sealed class Api4Rig : IAsyncDisposable
             CaFingerprint = wired ? () => rig.Fingerprint?.Invoke() : null,
             Firewall = wired ? firewall ?? new FakeFirewall(FirewallState.Present) : null,
             RegenerateCa = wired ? () => rig.Regenerate is { } r ? r() : Task.FromResult(CaRegenerationResult.Unavailable) : null,
+            ScsInstaller = wired ? scsInstaller : null,
+            ScsLink = wired ? () => rig.Link : null,
         });
         return rig;
     }
@@ -290,6 +296,7 @@ public sealed class EditorApiProfileTests
         { "POST", "/test" },
         { "GET", "/settings" },
         { "POST", "/settings/regenerate-ca" },
+        { "POST", "/settings/scs-plugin/install" },
     };
 
     [Theory]
@@ -338,7 +345,7 @@ public sealed class EditorApiProfileTests
             Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
         }
 
-        foreach (var path in new[] { "/profiles/create", "/profiles/import", "/profiles/demo/save", "/test", "/settings/regenerate-ca", "/profiles/demo/delete" })
+        foreach (var path in new[] { "/profiles/create", "/profiles/import", "/profiles/demo/save", "/test", "/settings/regenerate-ca", "/settings/scs-plugin/install", "/profiles/demo/delete" })
         {
             foreach (var type in new[] { "text/plain", "multipart/form-data; boundary=x", "image/png" })
             {
@@ -368,7 +375,7 @@ public sealed class EditorApiProfileTests
     {
         await using var rig = await Api4Rig.StartAsync(wired: false);
 
-        foreach (var (method, path) in new[] { ("GET", "/catalogs"), ("GET", "/profiles"), ("GET", "/assets"), ("GET", "/telemetry"), ("GET", "/settings"), ("POST", "/profiles/create"), ("POST", "/test") })
+        foreach (var (method, path) in new[] { ("GET", "/catalogs"), ("GET", "/profiles"), ("GET", "/assets"), ("GET", "/telemetry"), ("GET", "/settings"), ("POST", "/profiles/create"), ("POST", "/test"), ("POST", "/settings/scs-plugin/install") })
         {
             var body = path == "/test" ? """{"actionId":"starter"}""" : """{"name":"x","game":"ets2"}""";
             using var response = await rig.SendAsync(rig.Build(method, Api + path, body));

@@ -188,6 +188,41 @@ public class ContractJsonTests
         => Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Rotary>(
             $$$"""{"knob":{"asset":"{{{Asset}}}","rotation":5}}""", ContractJson.Options));
 
+    // Phase 5 (decisions §5 "Widget behaviours"): the behaviour decides which engine rules run, so it must survive the round trip,
+    // stay absent on old profiles, and only exist on the widget type it belongs to.
+    private const string Cell = """
+        "cell":{"col":0,"row":0,"colSpan":2,"rowSpan":2}
+        """;
+
+    [Fact]
+    public void Widget_behaviours_round_trip_and_stay_optional()
+    {
+        var json = $$"""
+            {"schemaVersion":1,"templateId":"a","grid":{"columns":6,"rows":2},"widgets":[
+             {"type":"switch","id":"h",{{Cell}},"positions":[{"angle":-30,"action":"light-off"},{"angle":0,"action":"light-park"},{"angle":30,"action":"light-on"},{"angle":60,"action":"light-on"}],"behavior":"headlights"},
+             {"type":"switch","id":"w",{{Cell}},"positions":[{"angle":-30,"action":"a"},{"angle":30,"action":"b"}],"behavior":"wipers"},
+             {"type":"dualAction","id":"e",{{Cell}},"tap":"ignition-on","hold":"starter","holdMode":"fire","behavior":"engineStartStop"},
+             {"type":"switch","id":"plain",{{Cell}},"positions":[{"angle":-30,"action":"a"},{"angle":30,"action":"b"}]}]}
+            """;
+        var layout = RoundTrip<Layout>(json, typeof(Layout));
+        Assert.Equal(SwitchBehavior.Headlights, ((SwitchWidget)layout.Widgets[0]).Behavior);
+        Assert.Equal(SwitchBehavior.Wipers, ((SwitchWidget)layout.Widgets[1]).Behavior);
+        Assert.Equal(DualActionBehavior.EngineStartStop, ((DualActionWidget)layout.Widgets[2]).Behavior);
+        Assert.Null(((SwitchWidget)layout.Widgets[3]).Behavior);
+    }
+
+    [Theory]
+    [InlineData("""{"type":"switch","id":"s","CELL","positions":[{"angle":0,"action":"a"},{"angle":30,"action":"b"}],"behavior":"engineStartStop"}""")]
+    [InlineData("""{"type":"dualAction","id":"d","CELL","tap":"a","holdMode":"fire","behavior":"headlights"}""")]
+    [InlineData("""{"type":"toggle","id":"t","CELL","action":"a","behavior":"wipers"}""")]
+    [InlineData("""{"type":"switch","id":"s","CELL","positions":[{"angle":0,"action":"a"},{"angle":30,"action":"b"}],"behavior":"Headlights"}""")]
+    [InlineData("""{"type":"switch","id":"s","CELL","positions":[{"angle":0,"action":"a"},{"angle":30,"action":"b"}],"behavior":0}""")]
+    public void Behaviour_of_another_widget_type_or_unknown_name_is_rejected(string widget)
+    {
+        var json = $$"""{"schemaVersion":1,"templateId":"a","grid":{"columns":6,"rows":2},"widgets":[{{widget.Replace("\"CELL\"", Cell, StringComparison.Ordinal)}}]}""";
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Layout>(json, ContractJson.Options));
+    }
+
     [Fact]
     public void Widget_without_type_is_rejected() =>
         Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize<Widget>(

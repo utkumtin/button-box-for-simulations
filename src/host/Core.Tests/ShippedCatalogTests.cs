@@ -17,6 +17,11 @@ public class ShippedCatalogTests
         ("wipers-off", "wipers0"), ("wipers-auto", "wipers1"), ("wipers-low", "wipers2"), ("wipers-fast", "wipers3"),
         ("beacon", "beacon"), ("hazard", "flasher4way"), ("parking-brake", "parkingbrake"),
         ("retarder-down", "retarderdown"), ("retarder-up", "retarderup"),
+        // Phase 5 (decisions §4 "Phase 5 catalog additions").
+        ("cruise-control", "cruiectrl"), ("cruise-resume", "cruiectrlres"), ("cruise-up", "cruiectrlinc"), ("cruise-down", "cruiectrldec"),
+        ("diff-lock", "diflock"), ("lift-axle", "liftaxle"), ("trailer-lift-axle", "liftaxlet"),
+        ("engine-brake", "engbraketog"), ("engine-brake-up", "engbrakeup"), ("engine-brake-down", "engbrakedwn"),
+        ("indicator-left", "lblinker"), ("indicator-right", "rblinker"),
     ];
 
     [Theory]
@@ -51,10 +56,10 @@ public class ShippedCatalogTests
         Assert.Empty(ProfileCheck.Problems(profile, Load("ets2")));
     }
 
-    private static Catalog Load(string name) =>
+    internal static Catalog Load(string name) =>
         JsonSerializer.Deserialize<Catalog>(File.ReadAllText(Path.Combine(RepoRoot(), "catalog", name + ".json")), ContractJson.Options)!;
 
-    private static string RepoRoot()
+    internal static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)

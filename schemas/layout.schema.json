@@ -187,6 +187,9 @@
             "cycle": {
               "$ref": "common.schema.json#/definitions/id"
             },
+            "behavior": {
+              "$ref": "#/definitions/switchBehavior"
+            },
             "rotary": {
               "$ref": "#/definitions/rotary"
             }
@@ -247,11 +250,31 @@
                 "starterTakeover"
               ]
             },
+            "behavior": {
+              "$ref": "#/definitions/dualActionBehavior"
+            },
             "look": {
               "$ref": "#/definitions/look"
             }
           }
         }
+      ]
+    },
+    "switchBehavior": {
+      "title": "SwitchBehavior",
+      "description": "Preset rules in the host engine (decisions §5 'Widget behaviours'): headlights (§5.1), wipers (§5.3). ETS2/ATS only.",
+      "type": "string",
+      "enum": [
+        "headlights",
+        "wipers"
+      ]
+    },
+    "dualActionBehavior": {
+      "title": "DualActionBehavior",
+      "description": "Preset rules in the host engine (decisions §5 'Widget behaviours'): engineStartStop (§5.2). ETS2/ATS only.",
+      "type": "string",
+      "enum": [
+        "engineStartStop"
       ]
     },
     "stateBinding": {

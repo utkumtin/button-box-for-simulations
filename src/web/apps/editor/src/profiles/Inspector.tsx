@@ -11,6 +11,7 @@ import type {
   Widget,
 } from '@bbs/protocol';
 import { ICON_KEYS } from '@bbs/widgets';
+import { behaviorLine, behaviorOf } from '../lib/behavior';
 import { defaultStateField } from '../lib/catalogView';
 import { WIDGET_TYPE_NAMES } from '../lib/layoutOps';
 import { ActionSelect, CommitNumber, CommitText } from './fields';
@@ -150,13 +151,15 @@ function EncoderFields({ widget, catalog, edit }: { widget: EncoderWidget; catal
 }
 
 function DualFields({ widget, catalog, assets, edit }: { widget: DualActionWidget; catalog: Catalog; assets: readonly AssetInfo[]; edit: Edit<DualActionWidget> }) {
+  // A behaviour widget has fixed actions and hold mode (decisions §5): they are shown, not offered.
+  const locked = widget.behavior !== undefined;
   return (
     <>
       <Field label="Tap action">
-        <ActionSelect label="Tap action" catalog={catalog} noneLabel="None" value={widget.tap} onChange={(tap) => edit((w) => ({ ...w, tap }))} />
+        <ActionSelect label="Tap action" catalog={catalog} noneLabel="None" disabled={locked} value={widget.tap} onChange={(tap) => edit((w) => ({ ...w, tap }))} />
       </Field>
       <Field label="Hold action">
-        <ActionSelect label="Hold action" catalog={catalog} noneLabel="None" value={widget.hold} onChange={(hold) => edit((w) => ({ ...w, hold }))} />
+        <ActionSelect label="Hold action" catalog={catalog} noneLabel="None" disabled={locked} value={widget.hold} onChange={(hold) => edit((w) => ({ ...w, hold }))} />
       </Field>
       <p className="muted">Holding fires the hold action once, after half a second.</p>
       <LookFields look={widget.look} assets={assets} onLook={(look) => edit((w) => ({ ...w, look }))} />
@@ -179,11 +182,14 @@ function SwitchFields({
   edit: Edit<SwitchWidget>;
   onLive: (change: ((w: SwitchWidget) => SwitchWidget) | null) => void;
 }) {
+  // A behaviour switch keeps its actions and position count (decisions §5); labels, icons and angles stay editable.
+  const locked = widget.behavior !== undefined;
   return (
     <>
       <fieldset className="pe-group">
         <legend>
-          Positions ({widget.positions.length} of {MIN_POSITIONS} to {MAX_POSITIONS})
+          Positions ({widget.positions.length}
+          {locked ? '' : ` of ${MIN_POSITIONS} to ${MAX_POSITIONS}`})
         </legend>
         {widget.positions.map((p, i) => (
           <div key={i} className="pe-position">
@@ -191,11 +197,11 @@ function SwitchFields({
             <CommitText label={`Position ${i + 1} label`} placeholder="Label" maxLength={32} value={p.label ?? ''} onCommit={(label) => edit((w) => updatePosition(w, i, (q) => ({ ...q, label })))} />
             <CommitNumber label={`Position ${i + 1} angle`} {...ANGLE_RANGE} step={1} value={p.angle} onCommit={(angle) => edit((w) => updatePosition(w, i, (q) => ({ ...q, angle })))} />
             <IconSelect label={`Position ${i + 1} icon`} value={p.icon} onChange={(icon) => edit((w) => updatePosition(w, i, (q) => ({ ...q, icon })))} />
-            <ActionSelect label={`Position ${i + 1} action`} catalog={catalog} value={p.action} onChange={(action) => edit((w) => updatePosition(w, i, (q) => ({ ...q, action })))} />
+            <ActionSelect label={`Position ${i + 1} action`} catalog={catalog} disabled={locked} value={p.action} onChange={(action) => edit((w) => updatePosition(w, i, (q) => ({ ...q, action })))} />
             <button
               type="button"
               className="btn btn-quiet"
-              disabled={widget.positions.length <= MIN_POSITIONS}
+              disabled={locked || widget.positions.length <= MIN_POSITIONS}
               aria-label={`Remove position ${i + 1}`}
               onClick={() => edit((w) => removePosition(w, i) ?? w)}
             >
@@ -203,7 +209,7 @@ function SwitchFields({
             </button>
           </div>
         ))}
-        <button type="button" className="btn" disabled={widget.positions.length >= MAX_POSITIONS} onClick={() => edit((w) => addPosition(w) ?? w)}>
+        <button type="button" className="btn" disabled={locked || widget.positions.length >= MAX_POSITIONS} onClick={() => edit((w) => addPosition(w) ?? w)}>
           Add position
         </button>
         <p className="muted">Angles are in degrees, 0 is straight up, positive turns clockwise.</p>
@@ -261,6 +267,7 @@ export function Inspector({ widget, live, catalog, assets, onChange, onLive, onD
     <div className="pe-inspector">
       <h3>{WIDGET_TYPE_NAMES[widget.type]}</h3>
       <p className="muted pe-id">Id: {widget.id}</p>
+      {behaviorLine(widget) && <p className="muted">{behaviorLine(widget)}</p>}
       <div className="row-actions">
         <button type="button" className="btn" onClick={onDuplicate}>
           Duplicate
@@ -294,7 +301,19 @@ export function Inspector({ widget, live, catalog, assets, onChange, onLive, onD
         />
       )}
 
-      <StateFields widget={widget} catalog={catalog} edit={edit} />
+      {behaviorOf(widget) === 'engineStartStop' ? (
+        // Lit and LED come from the behaviour; a binding left by an edited file can only be removed.
+        widget.state !== undefined && (
+          <div className="pe-group">
+            <p className="field-error">This button takes lit and LED from the engine, so it cannot have a state binding.</p>
+            <button type="button" className="btn" onClick={() => edit((w) => ({ ...w, state: undefined }))}>
+              Remove state binding
+            </button>
+          </div>
+        )
+      ) : (
+        <StateFields widget={widget} catalog={catalog} edit={edit} />
+      )}
     </div>
   );
 }

@@ -17,12 +17,23 @@ public sealed class ScsSimulator : SimulatorBase
     private const string Hazard = "truck.hazard.warning";
     private const string Wipers = "truck.wipers";
     private const string ParkingBrake = "truck.brake.parking";
+    private const string Retarder = "truck.brake.retarder";
+    private const string Cruise = "truck.cruise_control";
+    private const string DiffLock = "truck.differential_lock";
+    private const string LiftAxle = "truck.lift_axle";
+    private const string TrailerLiftAxle = "truck.trailer.lift_axle";
+    private const string EngineBrake = "truck.brake.motor";
+    private const string LeftBlinker = "truck.lblinker";
+    private const string RightBlinker = "truck.rblinker";
     private const string Start = "start";
 
     public ScsSimulator(TimeProvider? timeProvider = null)
         : base(
             timeProvider,
-            [Electric, Engine, Parking, LowBeam, HighBeam, Beacon, Hazard, Wipers, ParkingBrake],
+            [
+                Electric, Engine, Parking, LowBeam, HighBeam, Beacon, Hazard, Wipers, ParkingBrake,
+                Retarder, Cruise, DiffLock, LiftAxle, TrailerLiftAxle, EngineBrake, LeftBlinker, RightBlinker,
+            ],
             TimeSpan.FromSeconds(1.28))
     {
     }
@@ -67,6 +78,24 @@ public sealed class ScsSimulator : SimulatorBase
                 return Set(Electric, 0) | Set(Engine, 0);
             case "ignitionstrt":
                 return BeginStart();
+            case "cruiectrl":
+                return Toggle(Cruise);
+            case "cruiectrlres":
+                return Set(Cruise, 1);
+            case "diflock":
+                return Toggle(DiffLock);
+            case "liftaxle":
+                return Toggle(LiftAxle);
+            case "liftaxlet":
+                return Toggle(TrailerLiftAxle);
+            case "engbraketog":
+                return Toggle(EngineBrake);
+            case "engbrakeup":
+                return Set(EngineBrake, 1);
+            case "lblinker":
+                return Set(LeftBlinker, 1 - Get(LeftBlinker)) | Set(RightBlinker, 0);
+            case "rblinker":
+                return Set(RightBlinker, 1 - Get(RightBlinker)) | Set(LeftBlinker, 0);
             default:
                 return false;
         }

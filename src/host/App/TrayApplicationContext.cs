@@ -27,7 +27,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open editor", null, (_, _) => OpenEditor());
         menu.Items.Add(new ProfileMenu(host.Profiles, text => _notifyIcon!.ShowBalloonTip(10_000, ProductInfo.Name, text, ToolTipIcon.Warning)).Item);
-        menu.Items.Add(new SimulatorMenu(host.Simulator).Item);
+        if (SimulatorItem(host) is { } simulatorItem)
+        {
+            menu.Items.Add(simulatorItem);
+        }
+
         menu.Items.Add("Quit", null, async (_, _) => await QuitAsync());
 
         _notifyIcon = new NotifyIcon
@@ -44,6 +48,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         CheckStatus();
         _ = host.StartAsync(); // never throws: a failure becomes the status startFailed
     }
+
+    /// <summary>The "Simulator" submenu, only while the Simulator is the backend (decisions §3); null otherwise.</summary>
+    internal static ToolStripMenuItem? SimulatorItem(AppHost host) => host.Simulator is { } simulator ? new SimulatorMenu(simulator).Item : null;
 
     private void Post(Action action)
     {

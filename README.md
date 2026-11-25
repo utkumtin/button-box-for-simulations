@@ -22,7 +22,19 @@ Early development. Nothing is usable yet and there are no releases.
 
 ## Build, test and lint
 
-Build the web apps first: the host build copies their output.
+Build in this order: the SCS plugin, then the web apps, then the host. The host build copies the plugin DLL and the web apps' output; without the plugin DLL the app still builds and its Settings page says the plugin is not included in this build.
+
+```powershell
+# SCS plugin (from a Developer PowerShell for VS 2026)
+cmake -S src/plugins/scs -B src/plugins/scs/build -G "Visual Studio 18 2026" -A x64
+cmake --build src/plugins/scs/build --config Release
+ctest --test-dir src/plugins/scs/build -C Release --output-on-failure
+cmake --build src/plugins/scs/build --config Release --target format-check
+```
+
+The plugin's `harness` test serves the plugin's real pipe name: close Euro Truck Simulator 2 and American Truck Simulator (with the plugin installed) before running it.
+
+If CMake cannot find `clang-format`, pass `-DCLANG_FORMAT_EXECUTABLE=<path to clang-format.exe>` when configuring. The Build Tools ship it under `VC\Tools\Llvm\x64\bin`.
 
 ```powershell
 # Web (from src/web)
@@ -43,21 +55,12 @@ dotnet format src/host/ButtonBox.slnx --verify-no-changes
 ```
 
 ```powershell
-# End-to-end test: the built phone client in WebKit against a test host with the Simulator (after the two blocks above)
+# End-to-end test: the built phone client in WebKit against a test host with the Simulator (after the web and host blocks above)
 cd src/web
 pnpm exec playwright install webkit   # once; downloads Playwright's WebKit build
 pnpm e2e
 cd ../..
 ```
-
-```powershell
-# SCS plugin
-cmake -S src/plugins/scs -B src/plugins/scs/build -G "Visual Studio 18 2026" -A x64
-cmake --build src/plugins/scs/build --config Release
-cmake --build src/plugins/scs/build --config Release --target format-check
-```
-
-If CMake cannot find `clang-format`, pass `-DCLANG_FORMAT_EXECUTABLE=<path to clang-format.exe>` when configuring. The Build Tools ship it under `VC\Tools\Llvm\x64\bin`.
 
 ## Repository layout
 

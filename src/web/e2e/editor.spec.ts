@@ -109,3 +109,43 @@ test('keys pressed in another section never edit the hidden layout', async ({ ed
   await expect(page.locator('.pe-frame [data-widget-id]')).toHaveCount(8);
   await expect(page.getByText('Unsaved changes', { exact: true })).toHaveCount(0);
 });
+
+test('the headlight preset adds a four-position switch whose actions are locked; Settings shows the SCS plugin panel as not included', async ({
+  editor,
+}) => {
+  const page = await editor();
+  await page.getByRole('button', { name: /ETS2 starter/ }).click();
+  await expect(page.locator('.pe-frame')).toBeVisible();
+
+  // The seed fills its grid; a switch needs a 2 x 2 hole, so open two more rows.
+  const rows = page.getByRole('spinbutton', { name: 'Rows' });
+  await rows.fill('5');
+  await rows.press('Enter');
+  await expect(page.locator('.pe-frame [data-widget-id]')).toHaveCount(8);
+
+  await page.getByRole('button', { name: 'Headlight rotary' }).click();
+  await expect(page.locator('.pe-frame [data-widget-id]')).toHaveCount(9);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+
+  // The new widget is selected: four positions, the fourth is HIGH (its own icon, the same light-on action as LOW).
+  await expect(page.getByText('Positions (4)', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Position 4 icon')).toHaveValue('car-light-high');
+  const expected = ['light-off', 'light-park', 'light-on', 'light-on'];
+  for (const [i, action] of expected.entries()) {
+    const select = page.getByLabel(`Position ${i + 1} action`);
+    await expect(select).toHaveValue(action);
+    await expect(select).toBeDisabled();
+    await expect(page.getByRole('button', { name: `Remove position ${i + 1}` })).toBeDisabled();
+  }
+  await expect(page.getByRole('button', { name: 'Add position' })).toBeDisabled();
+  await expect(page.getByText('Behaviour: headlights', { exact: false })).toBeVisible();
+  // Labels and icons stay editable.
+  await expect(page.getByLabel('Position 1 label')).toBeEnabled();
+
+  // The E2E host has no plugin: the panel says so and offers no install button.
+  const nav = page.getByRole('navigation', { name: 'Sections' });
+  await nav.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('heading', { name: 'SCS plugin' })).toBeVisible();
+  await expect(page.getByText('not included in this build')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Install|Update)$/ })).toHaveCount(0);
+});

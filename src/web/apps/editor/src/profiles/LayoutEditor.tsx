@@ -34,7 +34,7 @@ import {
 import { findAction, GAME_NAMES } from '../lib/catalogView';
 import { engineButtonPreset, headlightPreset, wiperPreset } from '../lib/presets';
 import { profileProblems } from '../lib/problems';
-import { testAction, type SwitchPositions } from '../lib/testAction';
+import { testAction, testHint, type SwitchPositions } from '../lib/testAction';
 import { Canvas } from './Canvas';
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog';
 import { testErrorMessage } from './errors';
@@ -430,6 +430,7 @@ export function LayoutEditor(props: LayoutEditorProps) {
       {testing && (
         <div className="pe-test-banner" role="status">
           Test mode: presses are sent to the game.
+          {testHint(profile.game) && <span> {testHint(profile.game)}</span>}
           {lastSentName && <span> Last sent: {lastSentName}</span>}
           {testError && <span className="field-error"> {testError}</span>}
         </div>

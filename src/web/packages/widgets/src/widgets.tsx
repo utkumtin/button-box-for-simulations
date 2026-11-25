@@ -32,8 +32,12 @@ function classes(base: string, ...flags: [boolean, string][]): string {
   return [base, ...flags.filter(([on]) => on).map(([, name]) => name)].join(' ');
 }
 
-function isDimmed(widget: Widget, dim: boolean): boolean {
-  return dim && widget.state !== undefined;
+/**
+ * No telemetry: a widget whose look comes from telemetry is dim. That is every widget with a state binding, and the engine
+ * start-stop button, whose lit and LED come from its behaviour (decisions §5 "Widget behaviours") instead of a binding.
+ */
+export function isDimmed(widget: Widget, dim: boolean): boolean {
+  return dim && (widget.state !== undefined || (widget.type === 'dualAction' && widget.behavior === 'engineStartStop'));
 }
 
 function LookView({ look, lit, assetUrl }: { look: Look | undefined; lit: boolean; assetUrl: (id: string) => string }) {

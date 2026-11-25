@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>ButtonBox.Output.Scs</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Named pipes, pipe ACLs, the registry and the P/Invokes for the pipe server check are all in the shared framework; no package (decisions §9). -->
+    <ProjectReference Include="..\Core\ButtonBox.Core.csproj" />
+    <InternalsVisibleTo Include="ButtonBox.Output.Scs.Tests" />
+  </ItemGroup>
+</Project>

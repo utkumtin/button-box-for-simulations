@@ -228,4 +228,82 @@ public class ScsSimulatorTests
             _sim.Received);
         Assert.Equal(0, Field("truck.engine.enabled"));
     }
+
+    // Why: the host reads these fields for the toggles it shows lit; a press must flip exactly its own field and no other.
+    [Theory]
+    [InlineData("cruiectrl", "truck.cruise_control")]
+    [InlineData("diflock", "truck.differential_lock")]
+    [InlineData("liftaxle", "truck.lift_axle")]
+    [InlineData("liftaxlet", "truck.trailer.lift_axle")]
+    [InlineData("engbraketog", "truck.brake.motor")]
+    public async Task Toggle_inputs_of_the_new_catalog_flip_only_their_own_field(string input, string field)
+    {
+        var others = _sim.Current.Fields.Where(f => f.Key != field).ToDictionary(f => f.Key, f => f.Value);
+
+        await Press(input);
+        Assert.Equal(1, Field(field));
+        Assert.All(others, f => Assert.Equal(f.Value, Field(f.Key)));
+
+        await Press(input);
+        Assert.Equal(0, Field(field));
+    }
+
+    // Why: "resume" and "engine brake up" are absolute sets, so repeating them must not toggle back off.
+    [Theory]
+    [InlineData("cruiectrlres", "truck.cruise_control")]
+    [InlineData("engbrakeup", "truck.brake.motor")]
+    public async Task Absolute_inputs_set_their_field_to_one_and_stay_there(string input, string field)
+    {
+        await Press(input);
+        await Press(input);
+
+        Assert.Equal(1, Field(field));
+    }
+
+    // Why: the simulator does not model these; a press that silently changed something would hide a wrong host mapping.
+    [Theory]
+    [InlineData("cruiectrlinc")]
+    [InlineData("cruiectrldec")]
+    [InlineData("engbrakedwn")]
+    public async Task Inputs_the_simulator_does_not_model_change_nothing(string input)
+    {
+        await Press("cruiectrl");
+        await Press("engbrakeup");
+        var before = _sim.Current.Fields.ToDictionary(f => f.Key, f => f.Value);
+        var raised = 0;
+        _sim.Changed += (_, _) => raised++;
+
+        await Press(input);
+
+        Assert.Equal(before, _sim.Current.Fields.ToDictionary(f => f.Key, f => f.Value));
+        Assert.Equal(0, raised);
+    }
+
+    // Why: the retarder level is not modelled; its field exists (the catalog reads it) and stays 0.
+    [Fact]
+    public async Task Retarder_inputs_leave_the_retarder_field_at_zero()
+    {
+        await Press("retarderup");
+        await Press("retarderdown");
+
+        Assert.Equal(0, Field("truck.brake.retarder"));
+    }
+
+    // Why: a blinker lever is one lever: pressing the other side switches over, pressing the same side again cancels.
+    [Fact]
+    public async Task Blinkers_exclude_each_other_and_toggle_off_on_a_second_press()
+    {
+        await Press("lblinker");
+        Assert.Equal((1, 0), (Field("truck.lblinker"), Field("truck.rblinker")));
+
+        await Press("rblinker");
+        Assert.Equal((0, 1), (Field("truck.lblinker"), Field("truck.rblinker")));
+
+        await Press("rblinker");
+        Assert.Equal((0, 0), (Field("truck.lblinker"), Field("truck.rblinker")));
+
+        await Press("rblinker");
+        await Press("lblinker");
+        Assert.Equal((1, 0), (Field("truck.lblinker"), Field("truck.rblinker")));
+    }
 }

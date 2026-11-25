@@ -2,6 +2,7 @@ using ButtonBox.App.Lan;
 using ButtonBox.App.Profiles;
 using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
+using ButtonBox.Output.Scs.Install;
 using ButtonBox.Security;
 using Microsoft.AspNetCore.Http;
 
@@ -41,6 +42,9 @@ public static partial class EditorApi
                 return;
             case Route.RegenerateCa:
                 await RegenerateCaAsync(context, o);
+                return;
+            case Route.ScsInstall:
+                await ScsInstallAsync(context, o);
                 return;
             case Route.Assets or Route.AssetUpload or Route.AssetGet or Route.AssetDelete:
                 await AssetsAsync(context, o, route, id);
@@ -377,7 +381,86 @@ public static partial class EditorApi
         {
             Certificate = new CertificateStatus { Available = print is not null, Fingerprint = print },
             Firewall = await firewall.GetAsync(),
+            ScsPlugin = await Task.Run(() => ScsPluginStatusOf(o)), // reads Steam files and hashes the DLLs
         });
+    }
+
+    private static readonly ScsGame[] ScsGames = [ScsGame.Ets2, ScsGame.Ats];
+
+    // Both games, ETS2 first. "Game not found" comes from the locator (through the installer), never from a server-check failure;
+    // "connected" is the bridge's link and only for the game its hello named. A plugin of another protocol has another DLL than the
+    // shipped one, so the installer already says updateAvailable.
+    private static ScsPluginStatus ScsPluginStatusOf(EditorApiOptions o)
+    {
+        var installer = o.ScsInstaller;
+        var link = o.ScsLink?.Invoke();
+        return new ScsPluginStatus
+        {
+            Included = installer?.Included ?? false,
+            Games =
+            [
+                .. ScsGames.Select(game =>
+                {
+                    var status = installer?.Status(game) ?? new PluginStatus(ScsPluginState.GameNotFound, null);
+                    return new ScsGameStatus
+                    {
+                        Game = game,
+                        State = status.State,
+                        InstallDir = status.InstallDir,
+                        Connected = link is { Connected: true, Game: { } linked } && linked == game,
+                    };
+                }),
+            ],
+        };
+    }
+
+    private static async Task ScsInstallAsync(HttpContext context, EditorApiOptions o)
+    {
+        var response = context.Response;
+        if (o.ScsInstaller is not { } installer)
+        {
+            response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return;
+        }
+
+        var body = await ReadBodyAsync(context);
+        if (body is null)
+        {
+            return;
+        }
+
+        if (Parse<ScsInstallRequest>(body) is not { } request)
+        {
+            response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        // Copies a few MiB and hashes them; the installer serializes concurrent installs itself.
+        var result = await Task.Run(() => installer.Install(request.Game));
+        switch (result.Outcome)
+        {
+            case PluginInstallOutcome.Installed:
+                response.StatusCode = StatusCodes.Status204NoContent;
+                return;
+            case PluginInstallOutcome.GameNotFound:
+                response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            case PluginInstallOutcome.NotIncluded:
+                response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                return;
+            case PluginInstallOutcome.GameRunning:
+                await WriteJsonAsync(
+                    context,
+                    new ProblemList { Problems = [$"Close {(request.Game == ScsGame.Ets2 ? "Euro Truck Simulator 2" : "American Truck Simulator")} first."] },
+                    StatusCodes.Status409Conflict);
+                return;
+            default:
+                await WriteJsonAsync(
+                    context,
+                    new ProblemList { Problems = [result.Reason ?? "The plugin could not be installed."] },
+                    StatusCodes.Status422UnprocessableEntity);
+                return;
+        }
     }
 
     private static async Task RegenerateCaAsync(HttpContext context, EditorApiOptions o)

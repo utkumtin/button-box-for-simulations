@@ -4,6 +4,8 @@ using ButtonBox.App.Pairing;
 using ButtonBox.App.Profiles;
 using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
+using ButtonBox.Output.Scs;
+using ButtonBox.Output.Scs.Install;
 using ButtonBox.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Net.Http.Headers;
@@ -47,6 +49,12 @@ public sealed class EditorApiOptions
 
     /// <summary>Regenerates the CA (see <see cref="LanHost.RegenerateCertificateAuthorityAsync"/>).</summary>
     public Func<Task<CaRegenerationResult>>? RegenerateCa { get; init; }
+
+    /// <summary>Installs the SCS plugin and reports its state per game. Null: the settings say "not included" and the install route answers 503.</summary>
+    public IScsPluginInstaller? ScsInstaller { get; init; }
+
+    /// <summary>The bridge's link state, for the "connected" flags. Null (or returning null) means no bridge, as in simulator mode.</summary>
+    public Func<ScsBridgeStatus?>? ScsLink { get; init; }
 }
 
 /// <summary>
@@ -198,6 +206,7 @@ public static partial class EditorApi
         Test,
         Settings,
         RegenerateCa,
+        ScsInstall,
     }
 
     /// <summary>
@@ -250,6 +259,7 @@ public static partial class EditorApi
                 ("profiles", "duplicate") => (Route.ProfileDuplicate, s[2], true),
                 ("profiles", "delete") => (Route.ProfileDelete, s[2], true),
                 ("profiles", "activate") => (Route.ProfileActivate, s[2], true),
+                ("settings", "install") when s[2] == "scs-plugin" => (Route.ScsInstall, null, true),
                 ("assets", "delete") => (Route.AssetDelete, s[2], true),
                 _ => null,
             },

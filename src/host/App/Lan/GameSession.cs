@@ -12,20 +12,32 @@ namespace ButtonBox.App.Lan;
 /// The receive loops never wait for the game: outputs go into one bounded queue (<see cref="OutputQueueCapacity"/>), one consumer
 /// feeds the backend in order, and an output that does not fit is dropped (presses are never queued up behind a stuck game).
 /// The active profile can change while phones are connected (<see cref="Publish"/>): every phone gets the new layout in place.
+///
+/// Lock order: the session lock (<c>_gate</c>) is taken first, then a layout engine's lock or the state provider's lock (a gesture reads
+/// <c>_state.Current</c> under it). The handlers of <see cref="IStateProvider.Changed"/> and the timer take the session lock, so a provider
+/// must never raise <c>Changed</c> while holding its own lock, or a gesture and a telemetry change would deadlock.
+/// Widget state also changes without a gesture or a telemetry change (the amber timeout, the end of an inference pause, decisions §5):
+/// one timer on the session's clock fires at the earliest <see cref="LayoutEngine.NextDeadline"/> and marks the phones concerned.
 /// </summary>
 public sealed class GameSession : IAsyncDisposable
 {
+    /// <summary>Capacity of the output queue, counted in gestures: the outputs of one gesture enter together or not at all.</summary>
     public const int OutputQueueCapacity = 32;
+
+    /// <summary>The consumer stops waiting for one press after this long and moves on (decisions §3).</summary>
+    public static readonly TimeSpan PressTimeout = TimeSpan.FromSeconds(1);
 
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(3);
     private static readonly byte[] NoLayoutJson = Serialize(new NoLayoutMessage());
 
     private readonly IOutputBackend _backend;
     private readonly IStateProvider _state;
+    private readonly TimeProvider _time;
+    private readonly ITimer _timer;
 
     // Mode Wait, not DropWrite: with Wait a full channel makes TryWrite return false, so a drop is observable. DropWrite
     // would return true and silently discard.
-    private readonly Channel<GameOutput> _queue = Channel.CreateBounded<GameOutput>(new BoundedChannelOptions(OutputQueueCapacity)
+    private readonly Channel<IReadOnlyList<GameOutput>> _queue = Channel.CreateBounded<IReadOnlyList<GameOutput>>(new BoundedChannelOptions(OutputQueueCapacity)
     {
         FullMode = BoundedChannelFullMode.Wait,
         SingleReader = true,
@@ -45,13 +57,23 @@ public sealed class GameSession : IAsyncDisposable
     /// <param name="engine">The active profile's engine, or null when there is no (usable) active profile: every phone gets noLayout.</param>
     /// <param name="backend">Where the outputs go.</param>
     /// <param name="state">Telemetry for status and state frames.</param>
-    public GameSession(ProfileEngine? engine, IOutputBackend backend, IStateProvider state)
+    /// <param name="time">The clock for the press timeout and the widget timer; null is the system clock. Give the engine the same clock.</param>
+    public GameSession(ProfileEngine? engine, IOutputBackend backend, IStateProvider state, TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         ArgumentNullException.ThrowIfNull(state);
         _generation = new Generation(engine);
         _backend = backend;
         _state = state;
+        _time = time ?? TimeProvider.System;
+        _timer = _time.CreateTimer(_ => OnTimer(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        lock (_gate)
+        {
+            // The engine may be handed over after telemetry started: its knobs start from what the game shows now.
+            ObserveCurrentGeneration(_state.Current);
+            ArmTimer();
+        }
+
         _state.Changed += OnStateChanged;
         _consumer = Task.Run(ConsumeAsync);
     }
@@ -67,6 +89,11 @@ public sealed class GameSession : IAsyncDisposable
         }
 
         _state.Changed -= OnStateChanged;
+        lock (_gate)
+        {
+            _timer.Dispose();
+        }
+
         _queue.Writer.TryComplete();
         await _cancel.CancelAsync();
         try
@@ -110,6 +137,8 @@ public sealed class GameSession : IAsyncDisposable
 
             // The layout-frame cache belongs to the generation: a new engine never serves a frame of the old one.
             _generation = new Generation(engine);
+            ObserveCurrentGeneration(_state.Current); // the knobs of the new engine start from what the game shows now
+            ArmTimer();
             links = _links;
             foreach (var link in links)
             {
@@ -142,7 +171,7 @@ public sealed class GameSession : IAsyncDisposable
             return TestPressResult.UnknownAction;
         }
 
-        return _queue.Writer.TryWrite(output) ? TestPressResult.Sent : TestPressResult.QueueFull;
+        return _queue.Writer.TryWrite([output]) ? TestPressResult.Sent : TestPressResult.QueueFull;
     }
 
     /// <summary>Puts the phone into the fan-out. Until its sender has been started the marks are only flags and nothing is sent.</summary>
@@ -184,6 +213,10 @@ public sealed class GameSession : IAsyncDisposable
             }
 
             result = layout.Handle(message, _state.Current);
+            if (result.Outcome == HandleOutcome.Accepted)
+            {
+                ArmTimer(); // the gesture may have started an amber timer or an inference pause
+            }
         }
 
         if (result.Outcome != HandleOutcome.Accepted)
@@ -193,9 +226,10 @@ public sealed class GameSession : IAsyncDisposable
 
         // A gesture accepted just before a publish still reaches the game: it was valid for the layout the user touched, and the
         // game cannot take a press back. Acceptable; only the phone's own view is switched.
-        foreach (var output in result.Outputs)
+        // The outputs of one gesture enter the queue together or not at all: a full queue drops the whole gesture.
+        if (result.Outputs.Count > 0)
         {
-            _queue.Writer.TryWrite(output); // false = full = dropped, by design
+            _queue.Writer.TryWrite(result.Outputs); // false = full = dropped, by design
         }
 
         if (result.StateChanged)
@@ -231,17 +265,28 @@ public sealed class GameSession : IAsyncDisposable
         return new LinkView(layout, frame, ++_epoch);
     }
 
-    // Runs on the Simulator's timer threads and on the consumer: it marks flags and nothing else.
+    // Runs on the provider's threads. It takes the session lock (see the class remarks), moves knobs that telemetry moved, marks flags
+    // and nothing else, so a keyboard change moves a knob in the same state frame as the telemetry change.
     private void OnStateChanged(object? sender, TelemetrySnapshot snapshot)
     {
         try
         {
-            foreach (var link in Volatile.Read(ref _links))
+            lock (_gate)
             {
-                link.Sender.MarkStatus();
-                if (link.View.Layout is not null)
+                if (Volatile.Read(ref _disposed) != 0)
                 {
-                    link.Sender.MarkState();
+                    return;
+                }
+
+                ObserveCurrentGeneration(_state.Current); // not the event's snapshot: providers may raise from several threads, so an older one can arrive late
+                ArmTimer();
+                foreach (var link in _links)
+                {
+                    link.Sender.MarkStatus();
+                    if (link.View.Layout is not null)
+                    {
+                        link.Sender.MarkState();
+                    }
                 }
             }
         }
@@ -251,24 +296,118 @@ public sealed class GameSession : IAsyncDisposable
         }
     }
 
+    // Runs on the session clock's timer thread. Never touches a socket and never blocks: it observes, marks flags and re-arms.
+    private void OnTimer()
+    {
+        try
+        {
+            lock (_gate)
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                {
+                    return;
+                }
+
+                var changed = ObserveCurrentGeneration(_state.Current); // the newest state, read under the lock like a gesture does
+                foreach (var link in _links)
+                {
+                    if (link.View.Layout is { } layout && changed.Contains(layout))
+                    {
+                        link.Sender.MarkState();
+                    }
+                }
+
+                ArmTimer();
+            }
+        }
+        catch (Exception)
+        {
+            // A failing timer callback must not take the process down.
+        }
+    }
+
+    // Must be called under _gate. Returns the layout engines whose phone-visible state changed.
+    private HashSet<LayoutEngine> ObserveCurrentGeneration(TelemetrySnapshot snapshot)
+    {
+        HashSet<LayoutEngine> changed = [];
+        if (_generation.Engine is { } engine)
+        {
+            foreach (var layout in engine.Layouts)
+            {
+                if (layout.Observe(snapshot))
+                {
+                    changed.Add(layout);
+                }
+            }
+        }
+
+        return changed;
+    }
+
+    // Must be called under _gate. One timer for the earliest deadline of the current generation's layout engines. It is re-armed after
+    // every gesture, publish, telemetry change and firing, so a deadline that Observe has handled never keeps the timer running.
+    private void ArmTimer()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
+        DateTimeOffset? next = null;
+        if (_generation.Engine is { } engine)
+        {
+            foreach (var layout in engine.Layouts)
+            {
+                if (layout.NextDeadline is { } deadline && (next is null || deadline < next))
+                {
+                    next = deadline;
+                }
+            }
+        }
+
+        if (next is null)
+        {
+            _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            return;
+        }
+
+        // Bounded: a timer cannot be armed beyond ~49 days and would throw inside a gesture. Real deadlines are seconds away; a far one
+        // (engine and session on different clocks) just wakes the timer, which observes nothing and re-arms.
+        var due = next.Value - _time.GetUtcNow();
+        _timer.Change(due < TimeSpan.Zero ? TimeSpan.Zero : due > MaxTimerDue ? MaxTimerDue : due, Timeout.InfiniteTimeSpan);
+    }
+
+    private static readonly TimeSpan MaxTimerDue = TimeSpan.FromHours(1);
+
+    // An abandoned press that fails later must not end up as an unobserved task exception.
+    private static void ObserveLater(Task press) =>
+        _ = press.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+
     private async Task ConsumeAsync()
     {
         var token = _cancel.Token;
         try
         {
-            await foreach (var output in _queue.Reader.ReadAllAsync(token))
+            await foreach (var gesture in _queue.Reader.ReadAllAsync(token))
             {
-                try
+                foreach (var output in gesture)
                 {
-                    await _backend.PressAsync(output, token);
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    return;
-                }
-                catch (Exception)
-                {
-                    // One failed press must not stop the ones behind it.
+                    try
+                    {
+                        // A press the game never answers is abandoned after PressTimeout and the consumer moves on. The abandoned call
+                        // may still finish later in the backend: backends must tolerate overlapping calls.
+                        var press = _backend.PressAsync(output, token);
+                        ObserveLater(press);
+                        await press.WaitAsync(PressTimeout, _time, token);
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch (Exception)
+                    {
+                        // One failed or abandoned press must not stop the ones behind it.
+                    }
                 }
             }
         }

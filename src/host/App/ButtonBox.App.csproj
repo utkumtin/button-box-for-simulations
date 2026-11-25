@@ -12,6 +12,7 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <ProjectReference Include="..\Core\ButtonBox.Core.csproj" />
     <ProjectReference Include="..\Discovery\ButtonBox.Discovery.csproj" />
+    <ProjectReference Include="..\Output.Scs\ButtonBox.Output.Scs.csproj" />
     <ProjectReference Include="..\Security\ButtonBox.Security.csproj" />
     <ProjectReference Include="..\Simulator\ButtonBox.Simulator.csproj" />
   </ItemGroup>
@@ -37,6 +38,7 @@
     <LogoPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\assets\source\logo\logo.png'))</LogoPath>
     <TemplatesDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\templates'))</TemplatesDir>
     <CatalogDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\catalog'))</CatalogDir>
+    <ScsPluginPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\plugins\scs\build\Release\button_box_scs.dll'))</ScsPluginPath>
     <WebAppsDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\web\apps'))</WebAppsDir>
   </PropertyGroup>
 
@@ -56,5 +58,9 @@
     <!-- Action catalogs that ship with the app (decisions §4). -->
     <ShippedCatalog Include="$(CatalogDir)\*.json" />
     <None Include="@(ShippedCatalog)" Link="catalog\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The SCS plugin (decisions §12 "SCS plugin install"): copied from the plugin's CMake build when it exists. Without it the
+         Settings panel says the plugin is not included in this build. Build order: plugin, then web, then host. -->
+    <ScsPluginDll Include="$(ScsPluginPath)" Condition="Exists('$(ScsPluginPath)')" />
+    <None Include="@(ScsPluginDll)" Link="scs-plugin\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

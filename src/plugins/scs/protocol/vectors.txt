@@ -1,0 +1,157 @@
+# Test vectors for the SCS plugin pipe protocol (PROTOCOL.md). Read by the C++ tests and the C# tests.
+#
+# Line kinds (blank lines and lines starting with '#' are ignored; lines end with LF):
+#   pipe-name <name>
+#       The pipe name both sides must use, taken literally (no escapes).
+#   payload <to-host|to-plugin> <ok|bad> <payload>
+#       <payload> is everything after the single space that follows the verdict. Escapes: '\\' is one backslash,
+#       '\xNN' is the byte with hex value NN. 'to-host' payloads are parsed as plugin-to-host messages, 'to-plugin' as
+#       host-to-plugin messages. ok: parses, and encoding the parsed message gives the same bytes. bad: protocol error.
+#   frame <ok|bad|partial> <hex>
+#       <hex> (upper case, no spaces) is the whole byte stream given to a fresh frame reader, length prefix included.
+#       ok: exactly one frame comes out and no byte is left. bad: the reader reports a protocol error.
+#       partial: no frame and no error yet (the reader needs more bytes). Frames say nothing about payload content.
+
+pipe-name \\.\pipe\button-box-for-simulations-scs
+
+# Plugin to host: valid
+payload to-host ok hello 1 ets2 1.0.0
+payload to-host ok hello 1 ats 0.5.0-dev+3
+payload to-host ok hello 4294967295 ets2 X
+# version of exactly 32 bytes
+payload to-host ok hello 1 ets2 11111111111111111111111111111111
+payload to-host ok tel truck.electric.enabled 1
+payload to-host ok tel truck.brake.retarder 0
+payload to-host ok tel truck.cruise_control -2147483648
+payload to-host ok tel truck.light.beam.high 2147483647
+payload to-host ok tel a 5
+# name of exactly 64 bytes
+payload to-host ok tel abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 1
+payload to-host ok avail 0
+payload to-host ok avail 1
+payload to-host ok listening 0
+payload to-host ok listening 1
+payload to-host ok pong 0
+payload to-host ok pong 4294967295
+
+# Plugin to host: invalid
+# missing argument
+payload to-host bad hello 1 ets2
+# extra argument
+payload to-host bad hello 1 ets2 1.0 extra
+# unknown game
+payload to-host bad hello 1 acc 1.0
+payload to-host bad hello 1 ETS2 1.0
+# leading zero
+payload to-host bad hello 01 ets2 1.0
+payload to-host bad hello -1 ets2 1.0
+# uint out of range
+payload to-host bad hello 4294967296 ets2 1.0
+# version of 33 bytes
+payload to-host bad hello 1 ets2 111111111111111111111111111111111
+# underscore not allowed in a version
+payload to-host bad hello 1 ets2 1.0_beta
+# missing value
+payload to-host bad tel truck.wipers
+payload to-host bad tel truck.wipers 1 2
+# upper case in a name
+payload to-host bad tel Truck.wipers 1
+# name must start with a letter
+payload to-host bad tel 1truck 1
+payload to-host bad tel .truck 1
+# dash not allowed in a name
+payload to-host bad tel truck-wipers 1
+# name of 65 bytes
+payload to-host bad tel abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 1
+payload to-host bad tel truck.wipers -0
+payload to-host bad tel truck.wipers +1
+payload to-host bad tel truck.wipers 007
+# int out of range
+payload to-host bad tel truck.wipers 2147483648
+payload to-host bad tel truck.wipers -2147483649
+payload to-host bad tel truck.wipers 1.5
+payload to-host bad tel truck.wipers 0x1
+# bit is 0 or 1
+payload to-host bad avail 2
+payload to-host bad avail
+payload to-host bad listening true
+payload to-host bad pong
+payload to-host bad pong -1
+# a host-to-plugin command sent to the host
+payload to-host bad press lighton
+payload to-host bad ping 1
+# unknown command
+payload to-host bad evt paused
+payload to-host bad HELLO 1 ets2 1.0
+# two spaces
+payload to-host bad avail  1
+# leading space
+payload to-host bad \x20avail 1
+# trailing space
+payload to-host bad avail 1\x20
+# tab
+payload to-host bad avail\x091
+# NUL
+payload to-host bad avail 1\x00
+# LF
+payload to-host bad avail 1\x0A
+# DEL
+payload to-host bad tel truck.wipers 1\x7F
+# non-ASCII
+payload to-host bad tel truck.w\xC3\xA9 1
+# backslash in a name
+payload to-host bad tel truck\\wipers 1
+
+# Host to plugin: valid
+payload to-plugin ok press lighton
+payload to-plugin ok press wipers0
+payload to-plugin ok press j_tr_lights
+# name of exactly 64 bytes
+payload to-plugin ok press abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+payload to-plugin ok ping 0
+payload to-plugin ok ping 4294967295
+
+# Host to plugin: invalid
+# missing argument
+payload to-plugin bad press
+# the host never sends frame counts
+payload to-plugin bad press lighton 3
+payload to-plugin bad press LightOn
+payload to-plugin bad press 4way
+payload to-plugin bad press light-on
+# name of 65 bytes
+payload to-plugin bad press abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+payload to-plugin bad press lighton\x20
+payload to-plugin bad press\x20\x20lighton
+payload to-plugin bad ping
+payload to-plugin bad ping 4294967296
+payload to-plugin bad ping 01
+# the S2 spike command no longer exists
+payload to-plugin bad tap lighton 3
+payload to-plugin bad release lighton
+# a plugin-to-host command sent to the plugin
+payload to-plugin bad hello 1 ets2 1.0
+payload to-plugin bad tel truck.wipers 1
+payload to-plugin bad pong 1
+payload to-plugin bad press lighton\x00
+
+# Frames
+# smallest frame
+frame ok 010041
+frame ok 0D007072657373206C696768746F6E
+# largest frame (256 payload bytes)
+frame ok 000141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141
+# framing does not look at the payload
+frame ok 020000FF
+# length 0
+frame bad 0000
+# length 257: an error as soon as the length is read
+frame bad 0101
+frame bad FFFF
+frame bad 01014141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141
+# half a length
+frame partial 01
+# 3 of 5 payload bytes
+frame partial 0500414243
+# length only
+frame partial 0001

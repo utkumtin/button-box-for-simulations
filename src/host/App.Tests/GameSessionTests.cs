@@ -3,7 +3,9 @@ using System.Text.Json;
 using ButtonBox.App.Lan;
 using ButtonBox.Core;
 using ButtonBox.Core.Contracts;
+using ButtonBox.Core.Engine;
 using ButtonBox.Simulator;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace ButtonBox.App.Tests;
@@ -15,12 +17,21 @@ public sealed class GameSessionTests : IAsyncDisposable
 {
     private const string OtherTemplate = "ipad-generic";
 
+    // The session's own clock (press timeout, widget timer). Apart from the LAN fixture's clock on purpose: advancing it by seconds
+    // must not run out the connections' timers. Tests that need a stuck game never advance it. The demo's engine runs on the same
+    // clock: a behaviour's deadline is an absolute time of its engine's clock, so a session on another clock cannot schedule it.
+    private readonly SpyTime _time = new();
     private readonly LanFixture _fx = new();
-    private readonly DemoContent _demo = DemoContent.Load();
+    private readonly DemoContent _demo;
     private readonly ScsSimulator _sim = new();
     private readonly List<WebSocket> _sockets = [];
     private LanRig? _rig;
     private GameSession? _session;
+
+    public GameSessionTests()
+    {
+        _demo = DemoContent.Load(Path.Combine(AppContext.BaseDirectory, "catalog"), _time);
+    }
 
     private static CancellationToken Ct => LanFixture.Ct;
 
@@ -44,9 +55,9 @@ public sealed class GameSessionTests : IAsyncDisposable
         await _fx.DisposeAsync();
     }
 
-    private async Task<LanRig> StartAsync(IOutputBackend? backend = null, DeviceConnectionsOptions? options = null)
+    private async Task<LanRig> StartAsync(IOutputBackend? backend = null, DeviceConnectionsOptions? options = null, ProfileEngine? engine = null)
     {
-        _session = new GameSession(_demo.Engine, backend ?? _sim, _sim);
+        _session = new GameSession(engine ?? _demo.Engine, backend ?? _sim, _sim, _time);
         // 20 messages per second of fake time never refills here, so tests that send bursts raise the limit.
         _rig = await LanRig.StartAsync(_fx, options ?? new DeviceConnectionsOptions { Time = _fx.Time, MessagesPerSecond = 10_000 }, session: _session, assets: _demo.Assets);
         return _rig;
@@ -209,7 +220,7 @@ public sealed class GameSessionTests : IAsyncDisposable
         await LanRig.SendTextAsync(socket, Gesture("high-beam", "hold")); // a toggle has no hold
         await LanRig.SendTextAsync(socket, Gesture("lights", "tap")); // a switch is selected, not tapped
         await LanRig.SendTextAsync(socket, Select("high-beam", 1)); // a toggle has no positions
-        await LanRig.SendTextAsync(socket, Select("lights", 5)); // the demo switch has 3 positions
+        await LanRig.SendTextAsync(socket, Select("lights", 5)); // the demo switch has 4 positions
         await LanRig.SendTextAsync(socket, Gesture("high-beam", "tap"));
 
         _ = await ReadStateAsync(socket, f => IsLit(f, "high-beam"));
@@ -320,6 +331,299 @@ public sealed class GameSessionTests : IAsyncDisposable
         await LanRig.WaitForAsync(() => backend.Calls, calls => calls >= GameSession.OutputQueueCapacity + 1);
         await Task.Delay(200, Ct);
         Assert.Equal(GameSession.OutputQueueCapacity + 1, backend.Calls);
+    }
+
+    // A fake clock that counts the 1 s timers the consumer creates for a press, so a test can wait until the consumer is really waiting.
+    private sealed class SpyTime : FakeTimeProvider
+    {
+        private int _pressTimers;
+
+        public int PressTimers => Volatile.Read(ref _pressTimers);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            if (dueTime == GameSession.PressTimeout)
+            {
+                Interlocked.Increment(ref _pressTimers);
+            }
+
+            return base.CreateTimer(callback, state, dueTime, period);
+        }
+    }
+
+    // The first press blocks until released; every press is recorded in order.
+    private sealed class RecordingGateBackend : IOutputBackend
+    {
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly List<GameOutput> _outputs = [];
+
+        public IReadOnlyList<GameOutput> Outputs
+        {
+            get { lock (_outputs) { return [.. _outputs]; } }
+        }
+
+        public void Release() => _gate.TrySetResult();
+
+        public Task PressAsync(GameOutput output, CancellationToken cancellationToken = default)
+        {
+            lock (_outputs)
+            {
+                _outputs.Add(output);
+                return _outputs.Count == 1 ? _gate.Task : Task.CompletedTask;
+            }
+        }
+
+        public Task HoldAsync(GameOutput output, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task ReleaseAsync(GameOutput output, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    // The seeded demo profile already runs the three presets: engine start-stop, headlights (4 positions) and wipers. A copy with its own clock.
+    private ProfileEngine BehaviorEngine()
+    {
+        var json = JsonSerializer.Serialize(_demo.Profile, ContractJson.Options);
+        var profile = JsonSerializer.Deserialize<Profile>(json, ContractJson.Options)!;
+        foreach (var widget in profile.Layouts[0].Widgets)
+        {
+            switch (widget)
+            {
+                case DualActionWidget { Id: "engine" } engine:
+                    engine.Behavior = DualActionBehavior.EngineStartStop;
+                    break;
+                case SwitchWidget { Id: "lights" } lights:
+                    lights.Behavior = SwitchBehavior.Headlights;
+                    break;
+                case SwitchWidget { Id: "wipers" } wipers:
+                    wipers.Behavior = SwitchBehavior.Wipers;
+                    break;
+            }
+        }
+
+        return new ProfileEngine(profile, _demo.Catalog, _time);
+    }
+
+    private static string? LedOf(string stateFrame, string widget) =>
+        Widget(stateFrame, widget).TryGetProperty("led", out var led) ? led.GetString() : null;
+
+    private static int PositionOf(string stateFrame, string widget) => Widget(stateFrame, widget).GetProperty("position").GetInt32();
+
+    private async Task<WebSocket> ConnectReadyAsync()
+    {
+        var (_, token) = _fx.Registry.Add("Phone " + _sockets.Count, LanFixture.TemplateId, false);
+        var socket = await ConnectAsync(token);
+        _ = await ReadStateAsync(socket, _ => true);
+        return socket;
+    }
+
+    [Fact]
+    public async Task A_deadline_far_beyond_the_timer_range_never_costs_the_phone_its_connection()
+    {
+        // Why: a timer cannot be armed more than ~49 days ahead and throws instead. A deadline that far out only happens with a
+        // wiring bug (engine and session on different clocks), but the throw would happen while a gesture is handled and close the
+        // phone's connection. The session must arm a bounded time and re-check instead.
+        var backend = new RecordingGateBackend();
+        backend.Release();
+        var farClock = new FakeTimeProvider(_time.GetUtcNow().AddYears(30)); // the seeded behaviour profile on a clock decades ahead
+        var profile = JsonSerializer.Deserialize<Profile>(JsonSerializer.Serialize(_demo.Profile, ContractJson.Options), ContractJson.Options)!;
+        await StartAsync(backend, engine: new ProfileEngine(profile, _demo.Catalog, farClock));
+        var socket = await ConnectReadyAsync();
+
+        await LanRig.SendTextAsync(socket, Gesture("engine", "hold")); // arms the 4 s amber deadline on the far clock
+        await LanRig.SendTextAsync(socket, Gesture("beacon", "tap"));
+
+        await LanRig.WaitForAsync(() => backend.Outputs.Count, n => n >= 3);
+        Assert.Contains(new ScsInput("beacon"), backend.Outputs);
+        Assert.Equal(WebSocketState.Open, socket.State);
+    }
+
+    [Fact]
+    public async Task A_two_output_gesture_into_a_queue_with_one_free_slot_reaches_the_game_with_both_outputs_in_order()
+    {
+        // Why: the queue holds gestures. Counting outputs would let a start (ignitionon + ignitionstrt) lose its second half.
+        var backend = new RecordingGateBackend();
+        await StartAsync(backend, engine: BehaviorEngine());
+        var socket = await ConnectReadyAsync();
+        try
+        {
+            Assert.Equal(TestPressResult.Sent, _session!.TestPress("high-beam")); // stuck in the backend
+            await LanRig.WaitForAsync(() => backend.Outputs.Count, n => n == 1);
+            for (var i = 0; i < GameSession.OutputQueueCapacity - 1; i++)
+            {
+                Assert.Equal(TestPressResult.Sent, _session.TestPress("high-beam"));
+            }
+
+            await LanRig.SendTextAsync(socket, Gesture("engine", "hold")); // all off: ignitionon + ignitionstrt
+            await LanRig.SendTextAsync(socket, Select("lights", 1)); // barrier: the loop handles messages in order
+            _ = await ReadStateAsync(socket, f => PositionOf(f, "lights") == 1);
+        }
+        finally
+        {
+            backend.Release();
+        }
+
+        var total = 1 + GameSession.OutputQueueCapacity - 1 + 2;
+        await LanRig.WaitForAsync(() => backend.Outputs.Count, n => n >= total);
+        await Task.Delay(100, Ct);
+        Assert.Equal(total, backend.Outputs.Count);
+        Assert.Equal([new ScsInput("ignitionon"), new ScsInput("ignitionstrt")], backend.Outputs.TakeLast(2));
+    }
+
+    [Fact]
+    public async Task A_two_output_gesture_into_a_full_queue_is_dropped_whole()
+    {
+        // Why: a start that lost only its first half would leave electric on with no start; all or nothing.
+        var backend = new RecordingGateBackend();
+        await StartAsync(backend, engine: BehaviorEngine());
+        var socket = await ConnectReadyAsync();
+        try
+        {
+            Assert.Equal(TestPressResult.Sent, _session!.TestPress("high-beam"));
+            await LanRig.WaitForAsync(() => backend.Outputs.Count, n => n == 1);
+            for (var i = 0; i < GameSession.OutputQueueCapacity; i++)
+            {
+                Assert.Equal(TestPressResult.Sent, _session.TestPress("high-beam"));
+            }
+
+            Assert.Equal(TestPressResult.QueueFull, _session.TestPress("high-beam"));
+            await LanRig.SendTextAsync(socket, Gesture("engine", "hold"));
+            await LanRig.SendTextAsync(socket, Select("lights", 1));
+            _ = await ReadStateAsync(socket, f => PositionOf(f, "lights") == 1);
+        }
+        finally
+        {
+            backend.Release();
+        }
+
+        var total = 1 + GameSession.OutputQueueCapacity;
+        await LanRig.WaitForAsync(() => backend.Outputs.Count, n => n >= total);
+        await Task.Delay(100, Ct);
+        Assert.Equal(total, backend.Outputs.Count);
+        Assert.All(backend.Outputs, o => Assert.Equal(new ScsInput("hblight"), o));
+    }
+
+    [Fact]
+    public async Task A_press_the_game_never_answers_is_abandoned_after_one_second_and_the_next_press_goes_through()
+    {
+        // Why: one stuck backend call must not block every later press for as long as the game hangs (decisions §3).
+        var backend = new GateBackend();
+        await StartAsync(backend);
+        try
+        {
+            Assert.Equal(TestPressResult.Sent, _session!.TestPress("high-beam"));
+            Assert.Equal(TestPressResult.Sent, _session.TestPress("beacon"));
+            await LanRig.WaitForAsync(() => (backend.Calls, _time.PressTimers), s => s.Calls == 1 && s.PressTimers >= 1);
+
+            _time.Advance(TimeSpan.FromMilliseconds(999));
+            await Task.Delay(100, Ct);
+            Assert.Equal(1, backend.Calls);
+
+            _time.Advance(TimeSpan.FromMilliseconds(1));
+            await LanRig.WaitForAsync(() => backend.Calls, calls => calls == 2);
+        }
+        finally
+        {
+            backend.Release();
+        }
+    }
+
+    [Fact]
+    public async Task Amber_reaches_a_connected_phone_as_a_state_frame_at_four_seconds_without_any_telemetry_change()
+    {
+        // Why: the amber LED is a state change with no gesture and no telemetry behind it (decisions §3, §5.2); only the timer carries it.
+        _sim.EngineNeverStarts = true;
+        var presses = new CountingBackend(_sim);
+        await StartAsync(presses, engine: BehaviorEngine());
+        var socket = await ConnectReadyAsync();
+        await _sim.PressAsync(new ScsInput("ignitionon"), Ct); // electric on, as if from the keyboard
+        _ = await ReadStateAsync(socket, f => IsLit(f, "engine"));
+
+        // Electric is already on, so the hold sends only the starter, which the Simulator ignores: no telemetry change follows.
+        await LanRig.SendTextAsync(socket, Gesture("engine", "hold"));
+        await LanRig.WaitForAsync(() => presses.Count, n => n == 1);
+
+        _time.Advance(TimeSpan.FromSeconds(4));
+
+        var frame = await ReadStateAsync(socket, _ => true); // the very next state frame is the amber one
+        Assert.Equal("amber", LedOf(frame, "engine"));
+        Assert.True(IsLit(frame, "engine"));
+    }
+
+    private sealed class CountingBackend(IOutputBackend inner) : IOutputBackend
+    {
+        private int _count;
+
+        public int Count => Volatile.Read(ref _count);
+
+        public Task PressAsync(GameOutput output, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _count);
+            return inner.PressAsync(output, cancellationToken);
+        }
+
+        public Task HoldAsync(GameOutput output, CancellationToken cancellationToken = default) => inner.HoldAsync(output, cancellationToken);
+
+        public Task ReleaseAsync(GameOutput output, CancellationToken cancellationToken = default) => inner.ReleaseAsync(output, cancellationToken);
+    }
+
+    [Fact]
+    public async Task A_keyboard_change_moves_a_headlight_knob_in_the_next_state_frame()
+    {
+        // Why: "changes from the keyboard move the knob within a frame": the engine must observe before the frame is marked, not after.
+        await StartAsync(engine: BehaviorEngine());
+        var socket = await ConnectReadyAsync();
+
+        await _sim.PressAsync(new ScsInput("lighton"), Ct); // the user turns the lights on at the keyboard
+
+        var frame = await ReadStateAsync(socket, _ => true);
+        Assert.Equal(2, PositionOf(frame, "lights"));
+    }
+
+    [Fact]
+    public async Task A_published_engine_starts_its_knobs_from_what_the_game_shows()
+    {
+        // Why: a profile switch resets the knobs to 0, but the lights may be on in the game. Without an observe on publish the knob would
+        // stay wrong until the next telemetry change, which may be far away.
+        await StartAsync();
+        var socket = await ConnectReadyAsync();
+        await _sim.PressAsync(new ScsInput("lighton"), Ct);
+
+        _session!.Publish(BehaviorEngine(), keepSwitchPositions: false);
+
+        var frame = await ReadStateAsync(socket, f => PositionOf(f, "lights") == 2);
+        Assert.Equal(2, PositionOf(frame, "lights"));
+    }
+
+    [Fact]
+    public async Task Gestures_racing_telemetry_changes_from_other_threads_finish_without_a_deadlock()
+    {
+        // Why: a gesture holds the session lock and reads the provider; a telemetry change takes the session lock. If a provider ever
+        // raised Changed under its own lock, these two would wait for each other forever. The wait is bounded, so that shows as a failure.
+        await StartAsync(engine: BehaviorEngine());
+        var socket = await ConnectReadyAsync();
+        string[] keyboard = ["lighton", "lightoff", "hblight", "wipers2", "wipers0", "ignitionon", "ignitionoff"];
+
+        var phone = Task.Run(async () =>
+        {
+            for (var i = 0; i < 300; i++)
+            {
+                await LanRig.SendTextAsync(socket, Select("lights", i % 4));
+                await LanRig.SendTextAsync(socket, Gesture("engine", i % 2 == 0 ? "tap" : "hold"));
+                await LanRig.SendTextAsync(socket, Select("wipers", i % 4));
+            }
+        }, Ct);
+        var game = Task.Run(async () =>
+        {
+            for (var i = 0; i < 600; i++)
+            {
+                await _sim.PressAsync(new ScsInput(keyboard[i % keyboard.Length]), Ct);
+            }
+        }, Ct);
+
+        await Task.WhenAll(phone, game).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+        // Barrier: the receive loop handles messages in order, so once it closes, it has handled every gesture above (bounded wait).
+        await LanRig.SendTextAsync(socket, "{not json");
+        Assert.Equal(CloseCodes.BadMessage, (await LanRig.ReadUntilCloseAsync(socket)).CloseCode);
     }
 
     [Fact]

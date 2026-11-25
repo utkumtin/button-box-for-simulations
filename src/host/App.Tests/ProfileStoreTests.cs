@@ -190,7 +190,8 @@ public sealed partial class ProfileStoreTests : IDisposable
     public void A_save_keeps_the_switch_positions_and_switching_profile_resets_them()
     {
         // decisions §3 "Publishing": the driver's rotary stays where it is while the layout is edited; a profile switch resets.
-        var profile = Imported();
+        // The lights knob has no behaviour here: with the headlight inference the game would pull the knob back to what it shows.
+        var profile = Imported(edit: ProfileKit.PlainLights);
         Assert.True(_store.Activate(profile.Id).Ok);
         SelectLights(_kit.Session.Engine!, 2);
         var edited = ProfileKit.Parse(ProfileKit.Bytes(profile));

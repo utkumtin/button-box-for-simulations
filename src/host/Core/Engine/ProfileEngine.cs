@@ -11,8 +11,9 @@ public sealed class ProfileEngine
     private readonly Dictionary<string, LayoutEngine> _layouts = new();
     private readonly Dictionary<string, GameOutput> _outputs = new();
 
+    /// <param name="time">The clock for the behaviour timers (amber, inference pause); null is the system clock.</param>
     /// <exception cref="InvalidOperationException">The profile and catalog do not pass <see cref="ProfileCheck"/>.</exception>
-    public ProfileEngine(Profile profile, Catalog catalog)
+    public ProfileEngine(Profile profile, Catalog catalog, TimeProvider? time = null)
     {
         var problems = ProfileCheck.Problems(profile, catalog);
         if (problems.Count > 0)
@@ -20,6 +21,7 @@ public sealed class ProfileEngine
             throw new InvalidOperationException("Profile is not usable: " + string.Join(" ", problems));
         }
 
+        Game = profile.Game;
         var outputs = _outputs;
         foreach (var action in catalog.Actions)
         {
@@ -33,9 +35,15 @@ public sealed class ProfileEngine
 
         foreach (var layout in profile.Layouts)
         {
-            _layouts.Add(layout.TemplateId, new LayoutEngine(layout, outputs));
+            _layouts.Add(layout.TemplateId, new LayoutEngine(layout, outputs, time ?? TimeProvider.System));
         }
     }
+
+    /// <summary>The game of the profile; the app picks the output backend from it.</summary>
+    public Game Game { get; }
+
+    /// <summary>Every layout engine of the profile, one per template.</summary>
+    public IReadOnlyCollection<LayoutEngine> Layouts => _layouts.Values;
 
     /// <summary>The engine for a device template, or null when the profile has no layout for it.</summary>
     public LayoutEngine? ForTemplate(string templateId) =>

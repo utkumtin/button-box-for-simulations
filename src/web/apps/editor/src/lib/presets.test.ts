@@ -11,9 +11,9 @@ const ALL = new Set([BASE, KNOB, ENGINE]);
 const NONE = new Set<string>();
 
 describe('presets', () => {
-  it('headlight rotary: OFF / AUTO / LOW with the rotary images when the library has them', () => {
+  it('headlight rotary: OFF / AUTO / LOW / HIGH (60 degrees, high-beam icon), headlights behaviour, rotary images when the library has them', () => {
     const w = headlightPreset(CATALOG, ALL);
-    expect(w).toMatchObject({ type: 'switch', label: 'LIGHTS' });
+    expect(w).toMatchObject({ type: 'switch', label: 'LIGHTS', behavior: 'headlights' });
     if (w?.type !== 'switch') {
       throw new Error('not a switch');
     }
@@ -21,6 +21,7 @@ describe('presets', () => {
       { label: 'OFF', angle: -30, action: 'light-off' },
       { label: 'AUTO', angle: 0, action: 'light-park' },
       { icon: 'car-light-dimmed', angle: 30, action: 'light-on' },
+      { icon: 'car-light-high', angle: 60, action: 'light-on' },
     ]);
     expect(w.rotary).toEqual({ base: { asset: BASE, scale: 1 }, knob: { asset: KNOB, scale: 0.55 } });
   });
@@ -31,6 +32,7 @@ describe('presets', () => {
       throw new Error('not a switch');
     }
     expect(w.label).toBe('WIPERS');
+    expect(w.behavior).toBe('wipers');
     expect(w.positions.map((p) => [p.label, p.angle, p.action])).toEqual([
       ['OFF', -30, 'wipers-off'],
       ['AUTO', 0, 'wipers-auto'],
@@ -48,7 +50,7 @@ describe('presets', () => {
     expect('rotary' in (headlightPreset(CATALOG, new Set([BASE])) as object)).toBe(false);
   });
 
-  it('engine button: tap ignition, hold starter (fire), state bindings, image only when present', () => {
+  it('engine button: tap ignition-on, hold starter (fire), engineStartStop behaviour, no state binding, image only when present', () => {
     const w = engineButtonPreset(CATALOG, ALL);
     expect(w).toEqual({
       type: 'dualAction',
@@ -57,9 +59,28 @@ describe('presets', () => {
       hold: 'starter',
       holdMode: 'fire',
       look: { mode: 'images', image: ENGINE },
-      state: { lit: 'truck.electric.enabled', led: 'truck.engine.enabled' },
+      behavior: 'engineStartStop',
     });
+    // The behaviour supplies lit and LED; a state binding would be refused by the host (decisions §5).
+    expect('state' in (w as object)).toBe(false);
     expect('look' in (engineButtonPreset(CATALOG, NONE) as object)).toBe(false);
+  });
+
+  // The host checks the catalog for these actions when a behaviour is used (decisions §5).
+  it('headlights need high-beam and the engine button needs ignition-off in the catalog', () => {
+    const without = (id: string) => ({ ...CATALOG, actions: CATALOG.actions.filter((a) => a.id !== id) });
+    expect(headlightPreset(without('high-beam'), ALL)).toBeNull();
+    expect(engineButtonPreset(without('ignition-off'), ALL)).toBeNull();
+    expect(wiperPreset(without('high-beam'), ALL)).not.toBeNull();
+  });
+
+  it('the behaviours are for ETS2 and ATS only', () => {
+    expect(headlightPreset({ ...CATALOG, game: 'ats' }, ALL)).not.toBeNull();
+    for (const game of ['ac1', 'acc', 'acevo'] as const) {
+      expect(headlightPreset({ ...CATALOG, game }, ALL)).toBeNull();
+      expect(wiperPreset({ ...CATALOG, game }, ALL)).toBeNull();
+      expect(engineButtonPreset({ ...CATALOG, game }, ALL)).toBeNull();
+    }
   });
 
   it('returns null for a non-SCS catalog or a catalog without the actions', () => {

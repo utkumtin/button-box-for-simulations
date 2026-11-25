@@ -84,6 +84,23 @@ internal sealed class ProfileKit : IDisposable
     public static JsonObject Widget(JsonObject profile, string id) =>
         Layout(profile)["widgets"]!.AsArray().Select(n => n!.AsObject()).Single(w => (string)w["id"]! == id);
 
+    /// <summary>The Phase 3 lights knob: three positions and no behaviour, for tests of the generic switch plumbing (commanded positions that stay put).</summary>
+    public static void PlainLights(JsonObject profile)
+    {
+        var lights = Widget(profile, "lights");
+        lights.Remove("behavior");
+        lights["positions"]!.AsArray().RemoveAt(3);
+    }
+
+    /// <summary>The same for a typed profile.</summary>
+    public static Profile WithPlainLights(Profile profile)
+    {
+        var lights = profile.Layouts.SelectMany(l => l.Widgets).OfType<SwitchWidget>().Single(w => w.Id == "lights");
+        lights.Behavior = null;
+        lights.Positions = [.. lights.Positions.Take(3)];
+        return profile;
+    }
+
     public static Profile Parse(byte[] json) => JsonSerializer.Deserialize<Profile>(json, ContractJson.Options)!;
 
     public static string IdOf(string path) => Path.GetFileNameWithoutExtension(path);

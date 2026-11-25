@@ -54,9 +54,9 @@ export function setLayerValue(widget: SwitchWidget, key: LayerKey, prop: LayerVa
   return withRotary(widget, { ...widget.rotary, [key]: { ...layer, [prop]: clamped } });
 }
 
-/** A new last position, 30 degrees after the previous one (kept inside the allowed angles). Null at the limit. */
+/** A new last position, 30 degrees after the previous one (kept inside the allowed angles). Null at the limit or on a behaviour widget (its count is fixed). */
 export function addPosition(widget: SwitchWidget): SwitchWidget | null {
-  if (widget.positions.length >= MAX_POSITIONS) {
+  if (widget.behavior !== undefined || widget.positions.length >= MAX_POSITIONS) {
     return null;
   }
   const last = widget.positions[widget.positions.length - 1];
@@ -64,9 +64,9 @@ export function addPosition(widget: SwitchWidget): SwitchWidget | null {
   return { ...widget, positions: [...widget.positions, { angle, action: '' }] as SwitchWidget['positions'] };
 }
 
-/** Removes a position; a switch keeps at least two. Null when refused. */
+/** Removes a position; a switch keeps at least two, a behaviour widget keeps all. Null when refused. */
 export function removePosition(widget: SwitchWidget, index: number): SwitchWidget | null {
-  if (widget.positions.length <= MIN_POSITIONS || index < 0 || index >= widget.positions.length) {
+  if (widget.behavior !== undefined || widget.positions.length <= MIN_POSITIONS || index < 0 || index >= widget.positions.length) {
     return null;
   }
   return { ...widget, positions: widget.positions.filter((_, i) => i !== index) as SwitchWidget['positions'] };

@@ -38,7 +38,7 @@ public sealed class DemoContent
     public static DemoContent Load() => Load(Path.Combine(AppContext.BaseDirectory, "catalog"));
 
     /// <exception cref="InvalidOperationException">A bundled file or the shipped catalog is missing or not usable.</exception>
-    public static DemoContent Load(string shippedCatalogsDir)
+    public static DemoContent Load(string shippedCatalogsDir, TimeProvider? time = null)
     {
         var seed = ReadSeed();
         var catalogs = new CatalogStore(shippedCatalogsDir);
@@ -47,7 +47,7 @@ public sealed class DemoContent
             throw new InvalidOperationException("The shipped ETS2 catalog is missing or not usable.");
         }
 
-        var engine = new ProfileEngine(seed.Profile, catalog); // throws InvalidOperationException when the pair does not check out
+        var engine = new ProfileEngine(seed.Profile, catalog, time); // throws InvalidOperationException when the pair does not check out
         return new DemoContent(seed.Profile, catalog, engine, new AssetStore(seed.Images));
     }
 

@@ -216,8 +216,9 @@
       "title": "SettingsStatus",
       "type": "object",
       "additionalProperties": false,
-      "required": ["certificate", "firewall"],
+      "required": ["certificate", "firewall", "scsPlugin"],
       "properties": {
+        "scsPlugin": { "$ref": "#/definitions/scsPluginStatus" },
         "certificate": {
           "title": "CertificateStatus",
           "description": "fingerprint: SHA-256 of the CA certificate, 64 upper-case hex digits; absent when the CA is unavailable.",
@@ -234,6 +235,48 @@
           "type": "string",
           "enum": ["present", "missing", "unknown"]
         }
+      }
+    },
+    "scsPluginStatus": {
+      "title": "ScsPluginStatus",
+      "description": "included: the plugin DLL ships with this build (decisions §12). games: ETS2 and ATS, always both.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["included", "games"],
+      "properties": {
+        "included": { "type": "boolean" },
+        "games": { "type": "array", "maxItems": 2, "items": { "$ref": "#/definitions/scsGameStatus" } }
+      }
+    },
+    "scsGame": {
+      "title": "ScsGame",
+      "type": "string",
+      "enum": ["ets2", "ats"]
+    },
+    "scsGameStatus": {
+      "title": "ScsGameStatus",
+      "description": "installDir: absent when the game is not found. connected: this game's plugin is connected to the host now.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["game", "state", "connected"],
+      "properties": {
+        "game": { "$ref": "#/definitions/scsGame" },
+        "state": {
+          "title": "ScsPluginState",
+          "type": "string",
+          "enum": ["gameNotFound", "notInstalled", "upToDate", "updateAvailable"]
+        },
+        "installDir": { "type": "string", "minLength": 1, "maxLength": 260 },
+        "connected": { "type": "boolean" }
+      }
+    },
+    "scsInstallRequest": {
+      "title": "ScsInstallRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["game"],
+      "properties": {
+        "game": { "$ref": "#/definitions/scsGame" }
       }
     },
     "regenerateCaRequest": {

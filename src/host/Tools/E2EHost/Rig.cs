@@ -35,7 +35,9 @@ internal sealed class Rig : IDisposable
     private readonly string _keyName = "bb-e2e-" + Guid.NewGuid().ToString("N");
     private readonly string _secret = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
     private readonly byte[] _secretBytes;
-    private readonly ScsSimulator _simulator = new();
+    // One clock for the Simulator, the session and the store's engines (a layout engine's deadline is an absolute time).
+    private readonly TimeProvider _time = TimeProvider.System;
+    private readonly ScsSimulator _simulator;
     private readonly object _cleanup = new();
     private CertificateAuthority? _ca;
     private X509Certificate2? _certificate;
@@ -49,11 +51,13 @@ internal sealed class Rig : IDisposable
     private int _controlPort;
     private (DeviceRecord Device, string Token) _phone;
     private (DeviceRecord Device, string Token) _noLayout;
+    private HashSet<string>? _knownInputs;
     private bool _cleaned;
 
     public Rig()
     {
         _secretBytes = Encoding.UTF8.GetBytes(_secret);
+        _simulator = new ScsSimulator(_time);
     }
 
     public async Task StartAsync(string clientDir, string editorDir)
@@ -82,8 +86,11 @@ internal sealed class Rig : IDisposable
         // seeds "ETS2 starter" and the session then starts from the active engine.
         var catalogs = new CatalogStore(Path.Combine(AppContext.BaseDirectory, "catalog"));
         var assets = new AssetLibrary(Path.Combine(_root, "assets"));
-        _session = new GameSession(null, _simulator, _simulator);
-        var profiles = new ProfileStore(_root, new ProfileGate(catalogs, templates, assets), catalogs, _session);
+        _knownInputs = catalogs.TryGet(Game.Ets2, out var ets2)
+            ? ets2.Actions.Select(a => a.Output).OfType<ScsOutput>().Select(o => o.Input).ToHashSet(StringComparer.Ordinal)
+            : throw new InvalidOperationException("The shipped ETS2 catalog was not found next to the E2E host.");
+        _session = new GameSession(null, _simulator, _simulator, _time);
+        var profiles = new ProfileStore(_root, new ProfileGate(catalogs, templates, assets), catalogs, _session, _time);
         var firstRun = FirstRun.Run(_root, assets, profiles, DemoContent.ReadSeed());
         if (firstRun.Count > 0)
         {
@@ -141,6 +148,7 @@ internal sealed class Rig : IDisposable
             Telemetry = _simulator,
             CaFingerprint = () => _ca.Sha256Fingerprint,
             Firewall = new FirewallStatus(() => FirewallState.Present, TimeProvider.System),
+            // No ScsInstaller: the settings say "plugin not included" and both games "game not found"; no Steam lookup happens here.
         });
 
         await StartControlAsync();
@@ -286,7 +294,7 @@ internal sealed class Rig : IDisposable
         _control = app;
     }
 
-    // GET /state, POST /state {telemetry?, gameListening?, engineNeverStarts?}, GET /received, POST /drop. All need the secret header.
+    // GET /state, POST /state {telemetry?, gameListening?, engineNeverStarts?}, GET /received, POST /game {input}, POST /drop. All need the secret header.
     private async Task HandleControlAsync(HttpContext context)
     {
         var response = context.Response;
@@ -344,6 +352,10 @@ internal sealed class Rig : IDisposable
             });
             await WriteJsonAsync(context, received);
         }
+        else if (post && path == "/game")
+        {
+            await HandleGameInputAsync(context);
+        }
         else if (post && path == "/drop")
         {
             await _connections!.CloseAllAsync();
@@ -353,6 +365,39 @@ internal sealed class Rig : IDisposable
         {
             response.StatusCode = StatusCodes.Status404NotFound;
         }
+    }
+
+    // POST /game {"input": "<scs input>"}: the user pressing the game's own keyboard binding. It goes straight to the Simulator, past the
+    // session and the output queue, so the engines only learn of it through telemetry. The name must be one of the ETS2 catalog's inputs.
+    private async Task HandleGameInputAsync(HttpContext context)
+    {
+        string? name = null;
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: context.RequestAborted);
+            var root = body.RootElement;
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                var properties = root.EnumerateObject().ToList();
+                if (properties.Count == 1 && properties[0].Name == "input" && properties[0].Value.ValueKind == JsonValueKind.String)
+                {
+                    name = properties[0].Value.GetString();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // name stays null: 400.
+        }
+
+        if (name is null || _knownInputs is null || !_knownInputs.Contains(name))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        await _simulator.PressAsync(new ScsInput(name), context.RequestAborted);
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
     }
 
     private Task WriteStateAsync(HttpContext context) => WriteJsonAsync(

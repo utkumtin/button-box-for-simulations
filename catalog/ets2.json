@@ -138,6 +138,109 @@
         "kind": "scs",
         "input": "retarderup"
       }
+    },
+    {
+      "id": "cruise-control",
+      "name": "Cruise control on/off",
+      "output": {
+        "kind": "scs",
+        "input": "cruiectrl"
+      },
+      "stateField": "truck.cruise_control"
+    },
+    {
+      "id": "cruise-resume",
+      "name": "Cruise control resume",
+      "output": {
+        "kind": "scs",
+        "input": "cruiectrlres"
+      }
+    },
+    {
+      "id": "cruise-up",
+      "name": "Cruise speed up",
+      "output": {
+        "kind": "scs",
+        "input": "cruiectrlinc"
+      }
+    },
+    {
+      "id": "cruise-down",
+      "name": "Cruise speed down",
+      "output": {
+        "kind": "scs",
+        "input": "cruiectrldec"
+      }
+    },
+    {
+      "id": "diff-lock",
+      "name": "Differential lock",
+      "output": {
+        "kind": "scs",
+        "input": "diflock"
+      },
+      "stateField": "truck.differential_lock"
+    },
+    {
+      "id": "lift-axle",
+      "name": "Lift axle",
+      "output": {
+        "kind": "scs",
+        "input": "liftaxle"
+      },
+      "stateField": "truck.lift_axle"
+    },
+    {
+      "id": "trailer-lift-axle",
+      "name": "Trailer lift axle",
+      "output": {
+        "kind": "scs",
+        "input": "liftaxlet"
+      },
+      "stateField": "truck.trailer.lift_axle"
+    },
+    {
+      "id": "engine-brake",
+      "name": "Engine brake",
+      "output": {
+        "kind": "scs",
+        "input": "engbraketog"
+      },
+      "stateField": "truck.brake.motor"
+    },
+    {
+      "id": "engine-brake-up",
+      "name": "Engine brake up",
+      "output": {
+        "kind": "scs",
+        "input": "engbrakeup"
+      }
+    },
+    {
+      "id": "engine-brake-down",
+      "name": "Engine brake down",
+      "output": {
+        "kind": "scs",
+        "input": "engbrakedwn"
+      }
+    },
+    {
+      "id": "indicator-left",
+      "name": "Left indicator",
+      "output": {
+        "kind": "scs",
+        "input": "lblinker"
+      },
+      "stateField": "truck.lblinker"
+    },
+    {
+      "id": "indicator-right",
+      "name": "Right indicator",
+      "output": {
+        "kind": "scs",
+        "input": "rblinker"
+      },
+      "stateField": "truck.rblinker"
     }
   ]
 }

@@ -53,10 +53,27 @@ public class EditorContractsTests
     {
         RoundTrip<TelemetryView>("""{"available":true,"gameListening":false,"fields":[{"name":"truck.light.beacon","value":1}]}""");
         RoundTrip<TestPressRequest>("""{"actionId":"beacon"}""");
-        var settings = RoundTrip<SettingsStatus>("""{"certificate":{"available":true,"fingerprint":"26EC54A3000000000000000000000000000000000000000000000000DC7A9875"},"firewall":"missing"}""");
+        var settings = RoundTrip<SettingsStatus>("""{"certificate":{"available":true,"fingerprint":"26EC54A3000000000000000000000000000000000000000000000000DC7A9875"},"firewall":"missing",""" + Scs + "}");
         Assert.Equal(FirewallState.Missing, settings.Firewall);
-        RoundTrip<SettingsStatus>("""{"certificate":{"available":false},"firewall":"unknown"}""");
+        RoundTrip<SettingsStatus>("""{"certificate":{"available":false},"firewall":"unknown",""" + Scs + "}");
         Assert.Equal("REGENERATE", RoundTrip<RegenerateCaRequest>("""{"confirm":"REGENERATE"}""").Confirm);
+    }
+
+    // Phase 5: the SCS plugin panel (decisions §11, §12). installDir is absent when the game is not found.
+    private const string Scs =
+        """
+        "scsPlugin":{"included":true,"games":[{"game":"ets2","state":"upToDate","installDir":"C:\\Games\\Euro Truck Simulator 2","connected":true},{"game":"ats","state":"gameNotFound","connected":false}]}
+        """;
+
+    [Fact]
+    public void Scs_plugin_status_and_install_request_round_trip()
+    {
+        var settings = RoundTrip<SettingsStatus>("""{"certificate":{"available":false},"firewall":"present",""" + Scs + "}");
+        Assert.Equal(ScsPluginState.UpToDate, settings.ScsPlugin.Games[0].State);
+        Assert.Null(settings.ScsPlugin.Games[1].InstallDir);
+        Assert.Equal(ScsGame.Ats, RoundTrip<ScsInstallRequest>("""{"game":"ats"}""").Game);
+        RoundTrip<ScsGameStatus>("""{"game":"ats","state":"updateAvailable","installDir":"D:\\x","connected":false}""");
+        RoundTrip<ScsGameStatus>("""{"game":"ets2","state":"notInstalled","connected":false}""");
     }
 
     // The editor is trusted more than a phone, but a bug or a hostile page must still not slip extra or numeric values through.
@@ -68,6 +85,12 @@ public class EditorContractsTests
     [InlineData(typeof(TestPressRequest), """{"actionId":"beacon","output":{"kind":"scs","input":"x"}}""")]
     [InlineData(typeof(SettingsStatus), """{"certificate":{"available":true},"firewall":"open"}""")]
     [InlineData(typeof(RegenerateCaRequest), """{}""")]
+    [InlineData(typeof(SettingsStatus), """{"certificate":{"available":true},"firewall":"present"}""")]
+    [InlineData(typeof(ScsInstallRequest), """{"game":"acc"}""")]
+    [InlineData(typeof(ScsInstallRequest), """{"game":"ets2","path":"C:\\x"}""")]
+    [InlineData(typeof(ScsInstallRequest), """{}""")]
+    [InlineData(typeof(ScsGameStatus), """{"game":"ets2","state":"installed","connected":true}""")]
+    [InlineData(typeof(ScsGameStatus), """{"game":"ets2","state":"upToDate"}""")]
     public void Malformed_editor_bodies_are_rejected(Type type, string json) =>
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(json.Replace("HASH", Hash), type, ContractJson.Options));
 

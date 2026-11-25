@@ -63,6 +63,8 @@ public sealed class PublishTests : IAsyncDisposable
         return socket;
     }
 
+    private ProfileEngine PlainLightsEngine(Action<Layout>? tweak = null) => Fresh(tweak, p => ProfileKit.WithPlainLights(p));
+
     // A new engine from the demo profile, the way a Save builds one. A JSON round trip keeps engines from sharing widget objects.
     private ProfileEngine Fresh(Action<Layout>? tweak = null, Action<Profile>? tweakProfile = null)
     {
@@ -285,18 +287,20 @@ public sealed class PublishTests : IAsyncDisposable
     public async Task A_save_keeps_a_commanded_switch_position_and_a_profile_switch_resets_it()
     {
         // §3 "Commanded switch positions": Save must not make the knob jump back to OFF while the game's lights are still on.
-        await StartAsync(_demo.Engine);
+        // No headlight behaviour here: with it the knob follows what the game shows (the lights are on after the Select), which is the intended
+        // inference and is tested with the behaviours; this test is about the generic commanded position.
+        await StartAsync(PlainLightsEngine());
         var socket = await ConnectPhoneAsync();
         _ = await ReadAsync(socket, 4);
         await LanRig.SendTextAsync(socket, Select("lights", 2));
         _ = await ReadUntilAsync(socket, f => TypeOf(f) == "state" && PositionOf(f, "lights") == 2);
 
-        _session!.Publish(Fresh(l => Relabel(l, "high-beam", "SAVED")), keepSwitchPositions: true);
+        _session!.Publish(PlainLightsEngine(l => Relabel(l, "high-beam", "SAVED")), keepSwitchPositions: true);
         var saved = await ReadFromLayoutAsync(socket);
         Assert.Equal(["layout", "status", "state"], saved.Select(TypeOf));
         Assert.Equal(2, PositionOf(saved[2], "lights"));
 
-        _session.Publish(Fresh(), keepSwitchPositions: false);
+        _session.Publish(PlainLightsEngine(), keepSwitchPositions: false);
         var switched = await ReadFromLayoutAsync(socket);
         Assert.Equal(0, PositionOf(switched[2], "lights"));
 
@@ -673,7 +677,8 @@ public sealed class PublishTests : IAsyncDisposable
     {
         // A stuck game must not make the editor wait: the same queue as phone presses, and a full one answers at once.
         var backend = new BlockingBackend();
-        _session = new GameSession(_demo.Engine, backend, _sim);
+        // The clock is never advanced: the stuck press is not abandoned during the test.
+        _session = new GameSession(_demo.Engine, backend, _sim, new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
         try
         {
             var sent = 0;

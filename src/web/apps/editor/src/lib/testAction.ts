@@ -1,4 +1,4 @@
-import type { Widget } from '@bbs/protocol';
+import type { Game, Widget } from '@bbs/protocol';
 import type { GestureOut } from '@bbs/widgets';
 
 /**
@@ -8,6 +8,13 @@ import type { GestureOut } from '@bbs/widgets';
  * The preview has no game state, so a switch's position is kept here: editor-local, per switch id, starting at 0.
  * Previous/next stop at the ends (no wrap, nothing sent), like the phone (decisions §5).
  */
+/** ETS2/ATS drop presses while the game is not listening (decisions §10); other games have no such note. */
+export function testHint(game: Game): string | null {
+  return game === 'ets2' || game === 'ats'
+    ? 'The game must be running, focused and not paused for a press to act.'
+    : null;
+}
+
 export type SwitchPositions = Readonly<Record<string, number>>;
 
 export interface TestResult {

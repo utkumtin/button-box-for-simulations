@@ -2,13 +2,15 @@ using System.Reflection;
 using ButtonBox.App.Lan;
 using ButtonBox.Core;
 using ButtonBox.Discovery;
+using ButtonBox.Output.Scs;
+using ButtonBox.Output.Scs.Install;
 
 namespace ButtonBox.App;
 
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         // First of all: no file, key or port may be touched by a second process (decisions §12).
         using var instance = SingleInstance.ForProduct();
@@ -29,6 +31,11 @@ internal static class Program
             ClientDir = Path.Combine(root, "client"),
             LogoPng = ReadLogo(),
             Network = network,
+            UseSimulator = args.Contains("--simulator", StringComparer.Ordinal), // other arguments are ignored
+            // The only place that creates the real pieces: the real Steam lookup, the real pipe name, the shipped plugin DLL.
+            ScsLocator = new SteamGameLocator(),
+            ScsBridgeOptions = new ScsBridgeOptions(),
+            ScsPluginDll = Path.Combine(AppContext.BaseDirectory, "scs-plugin", PluginInstaller.DllName),
         });
         var server = LocalServer.StartAsync(Path.Combine(root, "client"), Path.Combine(root, "editor"), new EditorApiOptions
         {
@@ -42,7 +49,9 @@ internal static class Program
             Catalogs = host.Catalogs,
             Assets = host.Assets,
             Session = host.Session,
-            Telemetry = host.Simulator,
+            Telemetry = host.State,
+            ScsInstaller = host.ScsInstaller,
+            ScsLink = () => host.ScsLink,
             CaFingerprint = () => host.Lan?.CaFingerprint,
             Firewall = new FirewallStatus(),
             RegenerateCa = () => host.Lan is { } lan ? lan.RegenerateCertificateAuthorityAsync() : Task.FromResult(CaRegenerationResult.Unavailable),
